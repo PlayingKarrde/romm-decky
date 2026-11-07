@@ -6,6 +6,7 @@ import { PluginUpdate, PublicSettings, checkPluginUpdate, getSettings } from "./
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { InstallLocationPanel } from "./components/InstallLocationPanel";
+import { ArtworkPanel } from "./common/ArtworkPanel";
 import { LIBRARY_ROUTE, LibraryPage, openLibrary } from "./components/LibraryPage";
 import { patchContextMenu } from "./contextMenu";
 import { attentionCounts, startPolling, stopPolling, useInstallState } from "./installs";
@@ -123,6 +124,7 @@ function Content() {
       <DownloadsPanel />
       <ConnectionPanel settings={settings} onChange={setSettings} />
       {paired && <InstallLocationPanel />}
+      {paired && <ArtworkPanel title="RomM" settings={settings} onSaved={setSettings} />}
     </>
   );
 }

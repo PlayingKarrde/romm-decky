@@ -23,6 +23,10 @@ class SettingsTest(unittest.TestCase):
             again = SettingsStore(d).load()
             self.assertEqual(again.device_identifier, s.device_identifier)
             self.assertNotIn("secret", json.dumps(again.public()))
+            again.sgdb_key = "sgdbsecret"
+            pub = again.public()
+            self.assertNotIn("sgdbsecret", json.dumps(pub))
+            self.assertEqual((pub["has_sgdb_key"], pub["sgdb_square_covers"]), (True, False))
             self.assertEqual(os.stat(os.path.join(d, "settings.json")).st_mode & 0o777, 0o600)
 
     def test_corrupt_and_bad_types_load_as_defaults(self):
@@ -116,6 +120,11 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(library.rom_detail(r)["playlist_for"], [{"id": 5268, "name": "Chrono Cross"}])
         r["files"].append({"id": 2, "file_name": "CC (Disc 1).chd", "file_size_bytes": 9, "category": None})
         self.assertIsNone(library.rom_detail(r)["playlist_for"])
+
+    def test_sgdb_lookup(self):
+        self.assertEqual(library.sgdb_lookup({"name": "Chrono Cross", "sgdb_id": 36466, "steam_id": None}),
+                         {"title": "Chrono Cross", "sgdb_id": 36466, "steam_appid": None})
+        self.assertEqual(library.sgdb_lookup({}), {"title": "", "sgdb_id": None, "steam_appid": None})
 
     def test_platforms_hide_empty(self):
         out = library.platforms_summary([{"id": 1, "display_name": "B", "rom_count": 2},

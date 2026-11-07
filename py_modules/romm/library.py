@@ -158,3 +158,9 @@ COLLECTION_NAMES = {
 
 def collection_name(slug: str, display_name: str) -> str:
     return COLLECTION_NAMES.get(slug) or display_name or slug
+
+
+def sgdb_lookup(rom: dict) -> dict:
+    """Keyword args for SgdbResolver.assets_for from a RomM ROM: RomM often already knows
+    the SteamGridDB id (it's one of its metadata sources); else the exact title."""
+    return {"title": rom.get("name") or "", "sgdb_id": rom.get("sgdb_id"), "steam_appid": rom.get("steam_id")}

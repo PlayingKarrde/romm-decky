@@ -39,6 +39,7 @@ class Plugin:
     store: SettingsStore
     settings: Settings
     images: ImageCache
+    sgdb_ids: sgdb.SgdbResolver
     installed: InstalledStore
     jobs_root: str
     _install_lock: threading.Lock
@@ -71,6 +72,58 @@ class Plugin:
         self.settings = dataclasses.replace(self.settings, steam_platform_collections=bool(enabled))
         self.store.save(self.settings)
         return _ok(self.settings.public())
+
+    # ---- SteamGridDB -------------------------------------------------------
+
+    async def set_sgdb_key(self, key: str) -> dict:
+        """Validate against SteamGridDB, then save. The key is never sent back to the UI."""
+        def run():
+            k = (key or "").strip()
+            sgdb.SgdbClient(k).validate()
+            self.settings = dataclasses.replace(self.settings, sgdb_key=k)
+            self.store.save(self.settings)
+            log.info("SteamGridDB key saved")
+            return self.settings.public()
+        return await self._call(run)
+
+    async def clear_sgdb_key(self) -> dict:
+        self.settings = dataclasses.replace(self.settings, sgdb_key="")
+        self.store.save(self.settings)
+        return _ok(self.settings.public())
+
+    async def set_sgdb_square_covers(self, enabled: bool) -> dict:
+        self.settings = dataclasses.replace(self.settings, sgdb_square_covers=bool(enabled))
+        self.store.save(self.settings)
+        return _ok(self.settings.public())
+
+    async def get_art_plan(self, rom_id: str) -> dict:
+        """{capsule, wide, hero, logo} for an installed ROM: one image URL (or null) per Steam slot.
+
+        The RomM cover wins the capsule; SteamGridDB (if a key is set) supplies the wide
+        capsule, hero and logo. Any SGDB or RomM failure falls back to the cover alone.
+        """
+        def run():
+            rec = self.installed.get(rom_id)
+            if not rec:
+                raise RommError("This ROM isn't installed", code="not_found")
+            own = {"capsule": rec.get("cover_large") or rec.get("cover")}
+            assets: dict = {}
+            if self.settings.sgdb_key:
+                try:
+                    rom = self._client().get_rom(int(rom_id))
+                    assets = self.sgdb_ids.assets_for(sgdb.SgdbClient(self.settings.sgdb_key), str(rom_id),
+                                                      **library.sgdb_lookup(rom))
+                except RommError as e:
+                    log.warning("SteamGridDB lookup for %s failed: %s", rom_id, e)
+            plan = sgdb.art_plan(own, assets, square=self.settings.sgdb_square_covers)
+            log.info("Art plan for %s (%s): %s", rom_id, rec.get("title"),
+                     {k: ("sgdb" if v and sgdb.is_sgdb_image_url(v) else "romm" if v else None)
+                      for k, v in plan.items()})
+            return plan
+        return await self._call(run)
+
+    def _fetch_for(self, url: str):
+        return sgdb.fetch_image if sgdb.is_sgdb_image_url(url) else self._client().fetch_image
 
     async def check_plugin_update(self, force: bool = False) -> dict:
         """Newer release on GitHub? {current, latest, newer, url, sha256, page}. The plugin
@@ -186,7 +239,7 @@ class Plugin:
 
     async def get_artwork(self, image_url: str) -> dict:
         """Full-size original as {content_type, size, chunks}; fetch slices with get_image_chunk."""
-        return await self._call(lambda: self.images.describe_original(self._client().fetch_image, image_url))
+        return await self._call(lambda: self.images.describe_original(self._fetch_for(image_url), image_url))
 
     async def drop_artwork(self, image_url: str) -> dict:
         """Called once Steam has stored an image. RomM covers stay cached for the grid;
@@ -495,6 +548,7 @@ class Plugin:
         self.store = SettingsStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.settings = self.store.load()
         self.images = ImageCache(decky.DECKY_PLUGIN_RUNTIME_DIR, ignore_query=True)
+        self.sgdb_ids = sgdb.SgdbResolver()
         self.installed = InstalledStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.jobs_root = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "jobs")
         self._install_lock = threading.Lock()

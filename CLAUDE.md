@@ -12,7 +12,12 @@ A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gami
 - **Pushing from WSL:** git uses Windows Git Credential Manager (`credential.helper` in the global config).
   - Pushes succeed, but GCM prints `Failed to write item to store. [0x8]` because it can't save the token, so it may ask for a browser sign-in again.
   - The repo is public, so CI and release status can be read without auth at `api.github.com/repos/PlayingKarrde/romm-decky/actions/runs`.
-- **Next (v2 ideas):** save/state sync (RomM `/api/saves`, `/api/states`, `/api/sync`), banner/logo art from SteamGridDB, and "send to Deck" install requests (`/api/devices/{id}/installs`).
+- **SteamGridDB art (2026-11-07, unreleased):** an optional key set in the QAM "SteamGridDB artwork" panel (the shared `common/ArtworkPanel.tsx`, typed in; there's no phone page as in gameyfin-decky).
+  - `get_art_plan(rom_id)`: the RomM cover wins the capsule, and SGDB fills wide, hero and logo. Square covers are optional.
+  - Matching uses RomM's own `sgdb_id` when it has one (about 25% of the library), then `steam_id`, then an exact title. Unidentified files get no SGDB art.
+  - Art is applied on install and re-add, and from "RomM › Refresh artwork" in the library context menu. A reinstall keeps existing art.
+  - Backend calls verified on the Deck. `scripts/romm.py art <id>` shows a plan (`SGDB_KEY` in `.env`).
+- **Next (v2 ideas):** save/state sync (RomM `/api/saves`, `/api/states`, `/api/sync`), and "send to Deck" install requests (`/api/devices/{id}/installs`).
 - The repo uses a repo-local git identity (PlayingKarrde, with the GitHub no-reply email).
 - The plan is in `docs/PLAN.md`.
 

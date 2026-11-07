@@ -1,4 +1,5 @@
 import { callable } from "@decky/api";
+import type { ArtPlan } from "./common/artwork";
 
 export type ApiError = { message: string; status: number | null; code: string | null };
 export type Result<T> = { ok: true; data: T } | { ok: false; error: ApiError };
@@ -10,6 +11,8 @@ export type PublicSettings = {
   install_root: string;
   steam_platform_collections: boolean;
   platform_overrides: Record<string, string>;
+  has_sgdb_key: boolean;
+  sgdb_square_covers: boolean;
 };
 
 export type ConnectionInfo = {
@@ -242,6 +245,15 @@ export const getArtwork = callable<[image_url: string], Result<{ content_type: s
   "get_artwork",
 );
 export const dropArtwork = callable<[image_url: string], Result<null>>("drop_artwork");
+
+// ---- SteamGridDB -------------------------------------------------------------
+
+/** One image URL per Steam artwork slot (RomM asset path or SteamGridDB CDN URL). */
+export type { ArtPlan };
+export const getArtPlan = callable<[rom_id: string], Result<ArtPlan>>("get_art_plan");
+export const setSgdbKey = callable<[key: string], Result<PublicSettings>>("set_sgdb_key");
+export const clearSgdbKey = callable<[], Result<PublicSettings>>("clear_sgdb_key");
+export const setSgdbSquareCovers = callable<[enabled: boolean], Result<PublicSettings>>("set_sgdb_square_covers");
 
 export function formatBytes(n: number | null | undefined): string {
   if (n == null) return "";

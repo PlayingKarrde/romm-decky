@@ -23,6 +23,10 @@ class Settings:
     steam_platform_collections: bool = True
     # RomM platform slug -> emulator id, overriding the default choice.
     platform_overrides: dict = field(default_factory=dict)
+    # Optional SteamGridDB API key (the user's own) for logos, heroes and wide capsules.
+    sgdb_key: str = ""
+    # Use SGDB's square grid as the library capsule instead of the RomM cover.
+    sgdb_square_covers: bool = False
 
     @property
     def configured(self) -> bool:
@@ -37,6 +41,8 @@ class Settings:
             "install_root": self.install_root,
             "steam_platform_collections": self.steam_platform_collections,
             "platform_overrides": dict(self.platform_overrides),
+            "has_sgdb_key": bool(self.sgdb_key),
+            "sgdb_square_covers": self.sgdb_square_covers,
         }
 
 
@@ -73,7 +79,7 @@ class SettingsStore:
     def save(self, settings: Settings) -> None:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = self.path + ".tmp"
-        # 0600: contains the client token.
+        # 0600: contains the client token and SteamGridDB key.
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(asdict(settings), f, indent=2)

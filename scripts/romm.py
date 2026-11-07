@@ -9,7 +9,7 @@
   scripts/romm.py firmware <platform_id>
   scripts/romm.py fetch <rom_id> --dest DIR [--stop-after BYTES]   # per-file download with Range resume
 
-.env keys (CRLF tolerated): ROMM_URL, and ROMM_TOKEN or ROMM_USER + ROMM_PASS.
+.env keys (CRLF tolerated): ROMM_URL, and ROMM_TOKEN or ROMM_USER + ROMM_PASS; SGDB_KEY for `art`.
 """
 
 import argparse
@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(ROOT, "py_modules"))
 
 from romm.client import RommClient, RommError  # noqa: E402
 from romm import library  # noqa: E402
+from romm.common import sgdb  # noqa: E402
 
 
 def load_env(path: str) -> dict:
@@ -102,6 +103,17 @@ def fetch(c: RommClient, rom_id: int, dest: str, stop_after: int | None) -> dict
     return {"rom": rom["name"], "files": results}
 
 
+def art(c: RommClient, rom_id: int) -> dict:
+    rom = c.get_rom(rom_id)
+    key = os.environ.get("SGDB_KEY") or load_env(os.path.join(ROOT, ".env")).get("SGDB_KEY", "")
+    sg = sgdb.SgdbClient(key) if key else None
+    lookup = library.sgdb_lookup(rom)
+    sgdb_id = sg.resolve(**lookup) if sg else None
+    assets = sg.assets(sgdb_id) if sgdb_id else {}
+    return {"lookup": lookup, "sgdb_key": bool(key), "sgdb_id": sgdb_id,
+            "plan": sgdb.art_plan({"capsule": rom.get("path_cover_large")}, assets)}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -121,6 +133,8 @@ def main() -> None:
     co.add_argument("--virtual-kind", choices=library.VIRTUAL_KINDS)
     fw = sub.add_parser("firmware")
     fw.add_argument("platform_id", type=int)
+    a = sub.add_parser("art", help="SteamGridDB art plan for a ROM (needs SGDB_KEY)")
+    a.add_argument("id", type=int)
     fe = sub.add_parser("fetch")
     fe.add_argument("id", type=int)
     fe.add_argument("--dest", required=True)
@@ -145,6 +159,8 @@ def main() -> None:
         elif args.cmd == "firmware":
             out = [{k: f.get(k) for k in ("id", "file_name", "file_size_bytes", "md5_hash", "is_verified")}
                    for f in c.list_firmware(args.platform_id)]
+        elif args.cmd == "art":
+            out = art(c, args.id)
         else:
             out = fetch(c, args.id, args.dest, args.stop_after)
     except RommError as e:

@@ -16,7 +16,8 @@ import {
   findModuleByExport,
 } from "@decky/ui";
 import { FC, ReactElement } from "react";
-import { getSnapshot, healthOf, startUpdate, statusFor } from "./installs";
+import { toaster } from "@decky/api";
+import { applyRomArtwork, getSnapshot, healthOf, startUpdate, statusFor } from "./installs";
 import { confirmUninstall } from "./components/RomModal";
 
 const KEY_PREFIX = "romm-";
@@ -43,6 +44,14 @@ function itemsFor(appid: number): ReactElement[] {
   if (busy) return [];
   const actions: [string, string, () => void][] = [];
   if (st?.update_available && healthOf(inst, st) === "ok") actions.push(["update", "Update", () => void startUpdate(inst)]);
+  const refreshArt = () =>
+    void applyRomArtwork(inst.rom_id, appid, inst.cover).then((ok) =>
+      toaster.toast({
+        title: "RomM",
+        body: ok ? `Artwork refreshed for ${inst.title}` : `Couldn't load artwork for ${inst.title}`,
+      }),
+    );
+  actions.push(["artwork", "Refresh artwork", refreshArt]);
   actions.push(["uninstall", "Uninstall…", () => void confirmUninstall(inst)]);
   // MenuGroup is Steam's submenu (like "Manage ›"). If decky-ui can't find it in a
   // future client, fall back to flat items so the actions stay reachable.

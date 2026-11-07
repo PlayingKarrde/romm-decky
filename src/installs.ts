@@ -11,6 +11,7 @@ import {
   dismissJob,
   finalizeInstall,
   forgetInstalled,
+  getArtPlan,
   getInstallStatus,
   getInstalled,
   getJobs,
@@ -192,6 +193,14 @@ async function linkShortcut(f: ShortcutInfo): Promise<{ appId: number; hadShortc
   return { appId, hadShortcut };
 }
 
+/** Steam artwork for an installed ROM: the RomM cover, plus SteamGridDB art when a key is set.
+ *  Falls back to the cover alone if the plan can't be built. True if any image was set. */
+export async function applyRomArtwork(romId: string, appId: number, cover?: string | null): Promise<boolean> {
+  const plan = await getArtPlan(romId);
+  if (!plan.ok) console.warn("[romm] art plan failed", plan.error);
+  return applyArtwork(appId, plan.ok ? plan.data : { capsule: cover ?? null });
+}
+
 /** Turn a finished job into a Steam shortcut (+ collection, artwork) and record it. */
 export async function finishInstall(job: JobState, manual = false): Promise<void> {
   if (manual) {
@@ -217,7 +226,7 @@ export async function finishInstall(job: JobState, manual = false): Promise<void
           : `${f.name} is ready to play`,
     );
     // A reinstall keeps the existing shortcut's artwork (which the user may have customised).
-    if (!hadShortcut) await applyArtwork(appId, { capsule: f.cover });
+    if (!hadShortcut) await applyRomArtwork(f.rom_id, appId, f.cover);
   } catch (e) {
     console.error("[romm] finishing install failed", e);
     failed.set(job.job_id, (e as Error).message);
@@ -234,7 +243,7 @@ export async function readdToSteam(inst: InstalledRom): Promise<void> {
     if (!r.ok) throw new Error(r.error.message);
     const { appId } = await linkShortcut(r.data);
     toast(`${inst.title} is back in your library`);
-    await applyArtwork(appId, { capsule: r.data.cover });
+    await applyRomArtwork(inst.rom_id, appId, r.data.cover);
   } catch (e) {
     toast(`Couldn't add ${inst.title} to Steam: ${(e as Error).message}`);
   } finally {
