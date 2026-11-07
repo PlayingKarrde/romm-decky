@@ -1,0 +1,16 @@
+{
+  "name": "RomM",
+  "author": "PlayingKarrde",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": [
+      "romm",
+      "emulation",
+      "library",
+      "installer"
+    ],
+    "description": "Browse a self-hosted RomM library in Gaming Mode, install ROMs as Steam shortcuts that launch the right emulator, and uninstall them.",
+    "image": ""
+  }
+}
