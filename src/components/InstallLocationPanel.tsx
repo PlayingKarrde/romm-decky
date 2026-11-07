@@ -1,7 +1,8 @@
-import { ButtonItem, Dropdown, Field, PanelSection, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, Dropdown, Field, PanelSection, PanelSectionRow, showModal } from "@decky/ui";
 import { openFilePicker, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { InstallRoot, formatBytes, getInstallRoots, getSettings, setInstallRoot } from "../backend";
+import { EmulatorsModal } from "./EmulatorsModal";
 
 // FileSelectionType is a `const enum` in @decky/api's types and isn't exported at runtime.
 const FOLDER = 1;
@@ -50,7 +51,12 @@ export function InstallLocationPanel() {
   ];
 
   return (
-    <PanelSection title="Install location">
+    <PanelSection title="Games">
+      <PanelSectionRow>
+        <ButtonItem layout="below" description="Pick the emulator for each platform" onClick={() => showModal(<EmulatorsModal />)}>
+          Emulators…
+        </ButtonItem>
+      </PanelSectionRow>
       <PanelSectionRow>
         <Field
           label="ROMs go to"

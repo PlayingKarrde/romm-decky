@@ -83,6 +83,8 @@ export type RomDetail = RomSummary & {
   summary: string;
   cover_large: string | null;
   files: RomFile[];
+  /** Set when this ROM is only a .m3u playlist; the ROMs holding its discs. */
+  playlist_for: { id: number; name: string }[] | null;
   updated_at: string;
   collections: { id: number; name: string }[];
 };
@@ -108,9 +110,11 @@ export type InstallRoot = { id: string; label: string; path: string; free: numbe
 export type JobPhase =
   | "queued"
   | "starting"
+  | "core"
   | "checking"
   | "downloading"
   | "finalizing"
+  | "bios"
   | "done"
   | "error"
   | "cancelled";
@@ -126,7 +130,7 @@ export type JobState = {
   error_code?: string;
   kind?: "install";
 };
-export const ACTIVE_PHASES: JobPhase[] = ["queued", "starting", "checking", "downloading", "finalizing"];
+export const ACTIVE_PHASES: JobPhase[] = ["queued", "starting", "core", "checking", "downloading", "finalizing", "bios"];
 
 export type InstalledFile = { rel: string; size: number; owned: boolean };
 export type InstalledRom = {
@@ -150,6 +154,8 @@ export type InstalledRom = {
 };
 
 export type FinalizeInfo = {
+  bios_added: string[];
+  bios_error: string | null;
   rom_id: string;
   name: string;
   exe: string;
@@ -159,7 +165,33 @@ export type FinalizeInfo = {
   appid: number | null;
 };
 
-export type EmulatorInfo = { emulator: string; name: string; core?: string };
+/** A way to run a platform. status: ready, core_missing (RetroArch downloads it), not_installed. */
+export type EmulatorOption = {
+  id: string;
+  emulator: string;
+  name: string;
+  core?: string;
+  status: "ready" | "core_missing" | "not_installed";
+};
+export type EmulatorInfo = EmulatorOption;
+export type PlatformEmulators = {
+  key: string;
+  name: string;
+  rom_count: number;
+  options: EmulatorOption[];
+  override: string | null;
+  chosen: string | null;
+};
+export type EmulatorSettings = {
+  retroarch: boolean;
+  emulators: { id: string; name: string }[];
+  platforms: PlatformEmulators[];
+};
+export const getEmulatorSettings = callable<[], Result<EmulatorSettings>>("get_emulator_settings");
+export const setPlatformEmulator = callable<[key: string, candidate: string], Result<{ updated: number }>>(
+  "set_platform_emulator",
+);
+export const installRetroarch = callable<[], Result<{ started: boolean; installed: boolean }>>("install_retroarch");
 
 export const getInstallRoots = callable<[], Result<{ roots: InstallRoot[]; selected: string }>>("get_install_roots");
 export const setInstallRoot = callable<[path: string], Result<PublicSettings>>("set_install_root");

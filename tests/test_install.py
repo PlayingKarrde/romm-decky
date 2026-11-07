@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "py_modules"))
 sys.path.insert(0, HERE)
 
 from fake_romm import FakeRomm  # noqa: E402
-from romm import emulators, launchers, library  # noqa: E402
+from romm import emulators, launchers, library, provision  # noqa: E402
 from romm.client import RommClient, RommError  # noqa: E402
 from romm.installer import PART_SUFFIX, Cancelled, cleanup_parts, delete_owned, install, platform_dir  # noqa: E402
 
@@ -163,21 +163,63 @@ class EmulatorTest(unittest.TestCase):
     def core(self, name):
         open(os.path.join(self.cfgdir, "cores", f"{name}_libretro.so"), "w").close()
 
-    def test_picks_first_present_core(self):
+    def flatpak(self, app):
+        os.makedirs(os.path.join(self.home, ".local/share/flatpak/app", app))
+
+    def appimage(self, name, exe=True):
+        d = os.path.join(self.home, "Applications")
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, name)
+        open(p, "w").close()
+        os.chmod(p, 0o755 if exe else 0o644)
+        return p
+
+    def test_prefers_ready_core_then_downloadable(self):
+        self.assertEqual(emulators.resolve(self.home, "snes")["status"], "core_missing")
+        self.assertEqual(emulators.resolve(self.home, "snes")["core"], "snes9x")
         self.core("bsnes")
-        self.assertEqual(emulators.resolve(self.home, "snes")["core"], "bsnes")
+        self.assertEqual(emulators.resolve(self.home, "snes")["core"], "bsnes")  # ready beats a download
         self.core("snes9x")
         self.assertEqual(emulators.resolve(self.home, "snes")["core"], "snes9x")
 
-    def test_fs_slug_fallback_and_errors(self):
-        self.core("genesis_plus_gx")
-        self.assertEqual(emulators.resolve(self.home, "megadrive-unknown", "genesis")["core"], "genesis_plus_gx")
+    def test_standalone_first_and_override(self):
+        self.core("swanstation")
+        self.assertEqual(emulators.resolve(self.home, "psx")["id"], "retroarch:swanstation")
+        self.appimage("DuckStation-x64.AppImage")
+        self.assertEqual(emulators.resolve(self.home, "psx")["id"], "duckstation")
+        self.assertEqual(emulators.resolve(self.home, "psx", override="retroarch:swanstation")["id"],
+                         "retroarch:swanstation")
+        # An override that isn't installed falls back to the default.
+        self.assertEqual(emulators.resolve(self.home, "psx", override="nope")["id"], "duckstation")
+
+    def test_appimage_vs_flatpak_preference(self):
+        self.flatpak("net.pcsx2.PCSX2")
+        self.assertEqual(emulators.detect(self.home, "pcsx2"), ["/usr/bin/flatpak", "run", "net.pcsx2.PCSX2"])
+        p = self.appimage("pcsx2-Qt.AppImage")
+        self.assertEqual(emulators.detect(self.home, "pcsx2"), [p])  # EmuDeck's AppImage wins
+        self.flatpak("org.ppsspp.PPSSPP")
+        self.appimage("PPSSPP.AppImage")
+        self.assertEqual(emulators.detect(self.home, "ppsspp")[0], "/usr/bin/flatpak")
+
+    def test_errors(self):
         with self.assertRaises(RommError) as cm:
-            emulators.resolve(self.home, "snes")
-        self.assertEqual(cm.exception.code, "no_core")
+            emulators.resolve(self.home, "ps2")
+        self.assertEqual(cm.exception.code, "no_emulator")
         with self.assertRaises(RommError) as cm:
-            emulators.resolve(self.home, "switch")
+            emulators.resolve(self.home, "ps4")
         self.assertEqual(cm.exception.code, "unsupported_platform")
+        # RomM slug unknown, folder name known: falls back to the folder name.
+        self.assertEqual(emulators.resolve(self.home, "sega-genesis", "genesis")["core"], "genesis_plus_gx")
+
+    def test_argv_and_appimage_exec_bit(self):
+        p = self.appimage("pcsx2-Qt.AppImage", exe=False)
+        choice = emulators.resolve(self.home, "ps2")
+        self.assertEqual(emulators.argv(self.home, choice, "/r/g.chd"), [p, "-batch", "-fullscreen", "/r/g.chd"])
+        self.assertTrue(os.access(p, os.X_OK))
+        self.core("snes9x")
+        ra = emulators.argv(self.home, emulators.resolve(self.home, "snes"), "/r/a.smc")
+        self.assertEqual(ra[:4], ["/usr/bin/flatpak", "run", "org.libretro.RetroArch", "-L"])
+        self.assertTrue(ra[4].endswith("snes9x_libretro.so"))
 
     def test_reads_redirected_paths_from_cfg(self):
         with open(os.path.join(self.cfgdir, "retroarch.cfg"), "w") as f:
@@ -185,11 +227,31 @@ class EmulatorTest(unittest.TestCase):
         p = emulators.ra_paths(self.home)
         self.assertEqual(p["system"], "/home/deck/Emulation/bios")
         self.assertEqual(p["cores"], os.path.join(self.home, "cores"))
+        self.assertEqual(emulators.bios_dir(self.home, "retroarch"), "/home/deck/Emulation/bios")
+
+    def test_standalone_bios_dirs(self):
+        self.appimage("DuckStation.AppImage")
+        d = os.path.join(self.home, ".local/share/duckstation")
+        os.makedirs(d)
+        with open(os.path.join(d, "settings.ini"), "w") as f:
+            f.write("[Main]\nX = 1\n[BIOS]\nSearchDirectory = /home/deck/Emulation/bios\n")
+        self.assertEqual(emulators.bios_dir(self.home, "duckstation"), "/home/deck/Emulation/bios")
+        # PCSX2 Flatpak: relative "bios" is relative to its config dir.
+        self.flatpak("net.pcsx2.PCSX2")
+        fp = os.path.join(self.home, ".var/app/net.pcsx2.PCSX2/config/PCSX2")
+        os.makedirs(os.path.join(fp, "inis"))
+        with open(os.path.join(fp, "inis", "PCSX2.ini"), "w") as f:
+            f.write("[Folders]\nBios = bios\n")
+        self.assertEqual(emulators.bios_dir(self.home, "pcsx2"), os.path.join(fp, "bios"))
+        self.assertIsNone(emulators.bios_dir(self.home, "dolphin"))
 
     def test_launcher_script(self):
         self.core("snes9x")
         res = emulators.resolve(self.home, "snes")
-        path = launchers.write(self.home, 4023, "Act\nRaiser", emulators.argv(res, "/roms/snes/It's (USA).smc"))
+        argv = emulators.argv(self.home, res, "/roms/snes/It's (USA).smc")
+        self.assertTrue(launchers.write(self.home, 4023, "Act\nRaiser", argv))
+        self.assertFalse(launchers.write(self.home, 4023, "Act\nRaiser", argv))  # unchanged
+        path = launchers.script_path(self.home, 4023)
         self.assertTrue(os.stat(path).st_mode & stat.S_IXUSR)
         with open(path) as f:
             body = f.read()
@@ -198,6 +260,54 @@ class EmulatorTest(unittest.TestCase):
         self.assertIn("'/roms/snes/It'\"'\"'s (USA).smc' \"$@\"", body)
         launchers.remove(self.home, 4023)
         self.assertFalse(os.path.exists(path))
+
+
+class ProvisionTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_download_core_from_zip(self):
+        import io, zipfile
+        from unittest import mock
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("snes9x_libretro.so", b"ELF...")
+
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                self.close()
+
+        with mock.patch.object(provision, "urlopen", return_value=Resp(buf.getvalue())) as u:
+            path = provision.download_core(self.home, "snes9x")
+            self.assertIn("buildbot.libretro.com", u.call_args[0][0].full_url)
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), b"ELF...")
+        self.assertTrue(os.access(path, os.X_OK))
+        with self.assertRaises(RommError):
+            provision.download_core(self.home, "../evil")
+
+    def test_fetch_bios_keeps_existing(self):
+        fake = FakeRomm()
+        fake.firmware[7] = [(1, "scph5501.bin", b"A" * 100), (2, "ps2.bin", b"B" * 50)]
+        client = RommClient(fake.start(), token="t")
+        try:
+            bios = os.path.join(self.home, "bios")
+            os.makedirs(bios)
+            with open(os.path.join(bios, "scph5501.bin"), "wb") as f:
+                f.write(b"mine")
+            res = provision.fetch_bios(client, 7, bios)
+            self.assertEqual(res, {"added": ["ps2.bin"], "present": ["scph5501.bin"]})
+            with open(os.path.join(bios, "scph5501.bin"), "rb") as f:
+                self.assertEqual(f.read(), b"mine")
+        finally:
+            fake.stop()
 
 
 if __name__ == "__main__":

@@ -3,13 +3,14 @@ import dataclasses
 import os
 import platform
 import socket
+import subprocess
 import threading
 from typing import Any, Callable
 
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from romm import emulators, jobs, launchers, library
+from romm import emulators, jobs, launchers, library, provision
 from romm.client import RommClient, RommError, normalize_base_url
 from romm.images import ImageCache
 from romm.installed import InstalledStore, default_root, install_roots
@@ -201,14 +202,109 @@ class Plugin:
         log.info("Install root set to %s", self.settings.install_root or "(automatic)")
         return _ok(self.settings.public())
 
+    def _resolve(self, slug: str, fs_slug: str = "") -> dict:
+        key = emulators.platform_key(slug, fs_slug) or slug
+        return emulators.resolve(self._home(), slug, fs_slug, self.settings.platform_overrides.get(key))
+
     async def get_emulator(self, platform_slug: str, platform_fs_slug: str = "") -> dict:
-        """What would run this platform: {name, ...} or an error explaining what's missing."""
-        return await self._call(lambda: emulators.resolve(self._home(), platform_slug, platform_fs_slug))
+        """What would run this platform: describe() dict, or an error explaining what's missing."""
+        return await self._call(lambda: self._resolve(platform_slug, platform_fs_slug))
+
+    async def get_emulator_settings(self) -> dict:
+        """{retroarch: bool, emulators: [{id, name}], platforms: [{key, name, rom_count, options, override, chosen}]}
+
+        Platforms are the server's populated ones that we know how to run.
+        """
+        def run():
+            home = self._home()
+            found = emulators.detected(home)
+            out, seen = [], set()
+            for p in library.platforms_summary(self._client().list_platforms()):
+                key = emulators.platform_key(p["slug"], p["fs_slug"])
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                opts = [emulators.describe(home, c, found) for c in emulators.candidates_for(key)]
+                try:
+                    chosen = self._resolve(p["slug"], p["fs_slug"])["id"]
+                except RommError:
+                    chosen = None
+                out.append({"key": key, "name": p["name"], "rom_count": p["rom_count"], "options": opts,
+                            "override": self.settings.platform_overrides.get(key), "chosen": chosen})
+            return {
+                "retroarch": "retroarch" in found,
+                "emulators": [{"id": i, "name": emulators.EMULATORS[i].name} for i in found],
+                "platforms": out,
+            }
+        return await self._call(run)
+
+    async def set_platform_emulator(self, key: str, candidate: str = "") -> dict:
+        """Pick the emulator for a platform ('' = automatic), then rewrite the launch
+        scripts of installed ROMs on it. Downloads a RetroArch core if needed."""
+        def run():
+            home = self._home()
+            if candidate and candidate not in emulators.candidates_for(key):
+                raise RommError("That emulator can't run this platform", code="bad_request")
+            overrides = dict(self.settings.platform_overrides)
+            if candidate:
+                overrides[key] = candidate
+            else:
+                overrides.pop(key, None)
+            self.settings = dataclasses.replace(self.settings, platform_overrides=overrides)
+            self.store.save(self.settings)
+            updated = self._rewrite_launchers(key)
+            log.info("Emulator for %s set to %s; %d launchers rewritten", key, candidate or "(auto)", updated)
+            return {"updated": updated}
+        return await self._call(run)
+
+    def _rewrite_launchers(self, key: str | None, download: bool = True) -> int:
+        """Re-resolve the emulator for installed ROMs (of one platform, or all) and rewrite
+        launch scripts whose command changed. download=False skips ROMs whose new choice
+        needs a core download (they keep their current script). Returns how many changed."""
+        home, n = self._home(), 0
+        for rec in self.installed.load().values():
+            rkey = emulators.platform_key(rec.get("platform_slug", ""), rec.get("platform_fs_slug", ""))
+            if key is not None and rkey != key:
+                continue
+            choice = self._resolve(rec["platform_slug"], rec["platform_fs_slug"])
+            if choice.get("core") and choice["status"] == "core_missing":
+                if not download:
+                    continue
+                provision.download_core(home, choice["core"])
+            target = os.path.join(rec["platform_dir"], rec["launch_target"])
+            if launchers.write(home, rec["rom_id"], rec["title"], emulators.argv(home, choice, target)):
+                self.installed.put(rec["rom_id"], {"emulator": choice["name"]})
+                n += 1
+        return n
+
+    def _refresh_launchers(self) -> None:
+        """At load: keep "Automatic" launchers in step with what's installed now."""
+        try:
+            n = self._rewrite_launchers(None, download=False)
+            if n:
+                log.info("Updated %d launch scripts for newly preferred emulators", n)
+        except Exception:  # noqa: BLE001 — never block plugin load on this
+            log.exception("Refreshing launch scripts failed")
+
+    async def install_retroarch(self) -> dict:
+        """flatpak install --user RetroArch, in its own systemd unit (it can take minutes)."""
+        def run():
+            if "retroarch" in emulators.detected(self._home()):
+                return {"started": False, "installed": True}
+            cmd = ["systemd-run", "--user", "--quiet", "--collect", "--unit=romm-retroarch-install",
+                   emulators.FLATPAK, "install", "--user", "-y", "--noninteractive", "flathub", emulators.RA_APP]
+            subprocess.run(cmd, env=jobs.clean_env(), check=True, capture_output=True, timeout=15)
+            log.info("Started RetroArch Flatpak install")
+            return {"started": True, "installed": False}
+        return await self._call(run)
 
     async def start_install(self, rom_id: int) -> dict:
         def run():
             rom = library.rom_detail(self._client().get_rom(int(rom_id)))
-            emulators.resolve(self._home(), rom["platform_slug"], rom["platform_fs_slug"])  # fail early
+            if rom.get("playlist_for") is not None:
+                other = ", ".join(s["name"] for s in rom["playlist_for"]) or "the game it belongs to"
+                raise RommError(f"This is only a disc playlist. Install {other} instead.", code="playlist_only")
+            choice = self._resolve(rom["platform_slug"], rom["platform_fs_slug"])  # fails early if none
             root = default_root(self._home(), self.settings.install_root)
             os.makedirs(root, exist_ok=True)
             total = sum(f["size"] for f in rom["files"])
@@ -223,6 +319,9 @@ class Plugin:
                 job_dir = jobs.create_job(self.jobs_root, {
                     "rom_id": str(rom_id), "title": rom["name"], "root": root, "total_bytes": total,
                     "server_url": self.settings.server_url, "settings_path": self.store.path,
+                    "home": self._home(),
+                    "core": choice.get("core") if choice["status"] == "core_missing" else None,
+                    "bios_dir": emulators.bios_dir(self._home(), choice["emulator"]),
                 })
             how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
             log.info("Install %s (%s) -> %s via %s", rom_id, rom["name"], root, how)
@@ -262,9 +361,12 @@ class Plugin:
                 raise RommError("That install hasn't finished", code="not_ready")
             res, rom_id = st["result"], st["rom_id"]
             rom = res["rom"]
-            emu = emulators.resolve(self._home(), rom["platform_slug"], rom["platform_fs_slug"])
+            emu = self._resolve(rom["platform_slug"], rom["platform_fs_slug"])
+            if emu.get("core") and emu["status"] == "core_missing":
+                provision.download_core(self._home(), emu["core"])  # e.g. the override changed mid-install
             target = os.path.join(res["platform_dir"], res["launch_target"])
-            exe = launchers.write(self._home(), rom_id, rom["name"], emulators.argv(emu, target))
+            launchers.write(self._home(), rom_id, rom["name"], emulators.argv(self._home(), emu, target))
+            exe = launchers.script_path(self._home(), rom_id)
             prev = self.installed.get(rom_id) or {}
             coll = library.collection_name(rom["platform_slug"], rom["platform_name"])
             self.installed.put(rom_id, {
@@ -275,8 +377,10 @@ class Plugin:
                 "launch_target": res["launch_target"], "size": res["size"], "emulator": emu["name"],
                 "launcher": exe,
             })
-            log.info("Finalized %s (%s): %s via %s", rom_id, rom["name"], target, emu["name"])
+            log.info("Finalized %s (%s): %s via %s; bios %s", rom_id, rom["name"], target, emu["name"],
+                     res.get("bios_error") or res.get("bios"))
             return {
+                "bios_added": (res.get("bios") or {}).get("added", []), "bios_error": res.get("bios_error"),
                 "rom_id": str(rom_id), "name": rom["name"], "exe": exe, "start_dir": os.path.dirname(exe),
                 "cover": rom.get("cover_large") or rom.get("cover"),
                 "collection": coll if self.settings.steam_platform_collections else None,
@@ -316,6 +420,8 @@ class Plugin:
         self.jobs_root = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "jobs")
         self._install_lock = threading.Lock()
         os.makedirs(self.jobs_root, exist_ok=True)
+        if self.settings.configured:
+            asyncio.get_running_loop().run_in_executor(None, self._refresh_launchers)
         log.info("RomM plugin loaded (configured=%s)", self.settings.configured)
 
     async def _unload(self):

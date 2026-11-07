@@ -5,9 +5,11 @@ import { finishFailed, finishInstall, refresh, useInstallState } from "../instal
 const PHASE_TEXT: Record<string, string> = {
   queued: "Queued",
   starting: "Starting",
+  core: "Downloading emulator core",
   checking: "Checking existing files",
   downloading: "Downloading",
   finalizing: "Finishing",
+  bios: "Copying BIOS files",
   done: "Adding to Steam",
   error: "Failed",
   cancelled: "Cancelled",

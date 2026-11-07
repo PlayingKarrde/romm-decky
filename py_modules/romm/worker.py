@@ -14,7 +14,7 @@ import sys
 import time
 import traceback
 
-from . import jobs, library
+from . import jobs, library, provision
 from .client import RommClient, RommError
 from .installer import Cancelled, cleanup_parts, install, platform_dir
 
@@ -78,7 +78,16 @@ def run(job_dir: str) -> int:
         client = _client(spec)
         rom = library.rom_detail(client.get_rom(int(spec["rom_id"])))
         rep.update(title=rom["name"])
+        if spec.get("core"):
+            rep.update(phase="core", done=0, total=None)
+            provision.download_core(spec["home"], spec["core"], cancelled)
         res = install(client, rom, spec["root"], rom["platform_fs_slug"], rep.progress, cancelled)
+        if spec.get("bios_dir"):
+            rep.update(phase="bios", speed=0)
+            try:
+                res["bios"] = provision.fetch_bios(client, rom["platform_id"], spec["bios_dir"], cancelled)
+            except RommError as e:
+                res["bios_error"] = str(e)  # the game may still run (BIOS already there, or not needed)
         res["rom"] = {k: rom.get(k) for k in ("name", "platform_id", "platform_slug", "platform_fs_slug",
                                               "platform_name", "cover", "cover_large")}
         rep.update(phase="done", result=res, done=res["size"], total=res["size"], speed=0, finished_at=time.time())

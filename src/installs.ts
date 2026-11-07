@@ -146,7 +146,13 @@ export async function finishInstall(job: JobState, manual = false): Promise<void
     const saved = await setInstalledAppid(f.rom_id, appId, collection);
     if (!saved.ok) throw new Error(saved.error.message);
     await dismissJob(job.job_id);
-    toast(`${f.name} is ready to play`);
+    toast(
+      f.bios_error
+        ? `${f.name} is ready, but BIOS files couldn't be copied: ${f.bios_error}`
+        : f.bios_added.length
+          ? `${f.name} is ready to play (added ${f.bios_added.length} BIOS file${f.bios_added.length === 1 ? "" : "s"})`
+          : `${f.name} is ready to play`,
+    );
     // A reinstall keeps the existing shortcut's artwork (which the user may have customised).
     if (!hadShortcut) await applyCover(appId, f.cover);
   } catch (e) {

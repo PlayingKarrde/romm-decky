@@ -110,6 +110,13 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual([f["id"] for f in files], [1, 4])
         self.assertEqual(files[1]["subdir"], "data")
 
+    def test_playlist_only_rom(self):
+        r = {"id": 5269, "files": [{"id": 1, "file_name": "CC.m3u", "file_size_bytes": 78, "category": None}],
+             "sibling_roms": [{"id": 5268, "name": "Chrono Cross"}]}
+        self.assertEqual(library.rom_detail(r)["playlist_for"], [{"id": 5268, "name": "Chrono Cross"}])
+        r["files"].append({"id": 2, "file_name": "CC (Disc 1).chd", "file_size_bytes": 9, "category": None})
+        self.assertIsNone(library.rom_detail(r)["playlist_for"])
+
     def test_platforms_hide_empty(self):
         out = library.platforms_summary([{"id": 1, "display_name": "B", "rom_count": 2},
                                          {"id": 2, "display_name": "A", "rom_count": 0},

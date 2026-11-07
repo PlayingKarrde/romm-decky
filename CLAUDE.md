@@ -2,14 +2,14 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): step 3 (install end to end) done and committed.**
-- **Done:** steps 0 to 2.
-- **Step 3, verified with `cdp.py`:**
-  - ActRaiser (SNES) adopted an existing EmuDeck file.
-  - Kabuki (NES, `.zip`) downloaded.
-  - Both got a Steam shortcut pointing at a launch script, the cover as the portrait capsule, and the "SNES"/"NES" collection.
-- **Verified by the user in Gaming Mode:** ActRaiser and Kabuki launch, and uninstall works with one press, including "Delete files too".
-- **Next:** step 4 (the emulator layer: overrides, standalone emulators, core downloads, BIOS), then step 5.
+**Status (2026-11-06): step 4 (emulator layer) done and committed.**
+- **Done:** steps 0 to 3.
+- **Step 4, verified with `cdp.py`:**
+  - Strider installed for DuckStation (adopting the existing file), Heavenly Guardian for PCSX2 (35 PS2 BIOS files added from RomM), and Animal Crossing for Dolphin.
+  - A core downloads from the buildbot into a temporary home.
+  - The playlist-only ROM was blocked.
+- **Verified by the user:** the three games launch (DuckStation, PCSX2, Dolphin), and switching emulators in the Emulators dialog works.
+- **Next:** step 5 (the context-menu Uninstall, status and drift checks, launching more standalone emulators), then the release.
 - The repo has its first commit on `main` and a repo-local git identity (PlayingKarrde, with the GitHub no-reply email). It has no GitHub remote yet.
 - The plan is in `docs/PLAN.md`.
 
@@ -50,6 +50,15 @@ Tender (github.com/danielcopper/decky-romm-sync) already exists. The user tried 
 - **Shortcut target: a launch wrapper the plugin ships** (`bin/romm-launch`, which calls `py_modules/romm/launch.py <rom_id>`). The emulator is resolved at launch time, so changing the emulator choice never means editing shortcuts, and save sync gets a hook later.
   - Not yet decided: pass the ROM id through a per-game stub in the install dir, so the user's launch options are never touched. Check on the Deck.
 - **Compat tool:** always cleared, with `SpecifyCompatTool(appid, "")`.
+- **Emulator layer (`emulators.py`), decided with the user on 2026-11-06:**
+  - **Emulators are launched directly** (`flatpak run …` or the AppImage), **never through EmuDeck's launcher scripts.** Those also run EmuDeck init and cloud-sync upload. Arguments follow EmuDeck's Steam ROM Manager parsers, as recorded in `~/.config/steam-rom-manager/userData/userConfigurations.json` on the Deck.
+  - **Platforms map to candidates:** `PLATFORMS[slug]` is an ordered list of `retroarch:<core>` or standalone emulator ids.
+  - **Choosing:** `resolve()` takes the user's override (`settings.platform_overrides[key]`) if it's installed, else the first ready candidate, else the first whose core can be downloaded.
+  - **Detection:** Flatpak app dirs (user and system) and `~/Applications/<Prefix>*.AppImage`. EmuDeck's AppImage wins over a Flatpak for DuckStation, PCSX2, Cemu and RPCS3, because that's the build EmuDeck configured.
+  - **Core downloads:** a missing RetroArch core comes from `buildbot.libretro.com/nightly/linux/x86_64/latest/<core>_libretro.so.zip`, in the worker (phase `core`) or when the user switches.
+  - **BIOS:** each emulator's BIOS folder is read from its own config (`retroarch.cfg` `system_directory`, DuckStation `settings.ini` `[BIOS] SearchDirectory`, PCSX2 `inis/PCSX2.ini` `[Folders] Bios`). On the Deck all three point at `~/Emulation/bios`. RomM firmware for the platform is copied there after the ROM (phase `bios`). Existing names are never overwritten, and BIOS files are never deleted.
+  - **Keeping launchers current:** at plugin load, `_refresh_launchers` rewrites any launch script whose resolved command changed. It never downloads cores, so "Automatic" follows newly installed emulators. Changing an override rewrites that platform's scripts, downloading the core if needed.
+- **Playlist-only ROMs:** RomM indexes a loose `Game.m3u` as its own ROM, separate from the folder holding the discs (PSX Chrono Cross: 5269 is the `.m3u`, 5268 the discs). `rom_detail()["playlist_for"]` lists the `sibling_roms`, and installing one is refused, naming the real game.
 - **BIOS:** fetched from RomM's firmware endpoint into the chosen emulator's BIOS dir (RetroArch `system/`, DuckStation and PCSX2 `bios/`). Files already present with the same hash are skipped.
 - **Multi-disc:** generate an `.m3u`. **Archives:** extract only when the platform's map entry says so.
 - **Install layout (2026-11-06, the user's choice):** EmuDeck style, `<root>/<platform>/<file>`. A multi-file game gets `<root>/<platform>/<fs_name>/` plus an `.m3u`.

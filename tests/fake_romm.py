@@ -15,6 +15,7 @@ class FakeRomm:
 
     def __init__(self):
         self.roms: dict[int, dict] = {}
+        self.firmware: dict[int, list[tuple[int, str, bytes]]] = {}  # platform_id -> [(id, name, data)]
         self.requests: list[tuple[str, str | None]] = []  # (path, Range header)
         self.honour_range = True
 
@@ -53,6 +54,24 @@ class FakeRomm:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+                    return
+                if u.path == "/api/firmware":
+                    pid = int(urllib.parse.parse_qs(u.query)["platform_id"][0])
+                    body = json.dumps([{"id": i, "file_name": n, "file_size_bytes": len(d),
+                                        "md5_hash": hashlib.md5(d).hexdigest()}
+                                       for i, n, d in fake.firmware.get(pid, [])]).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                m = re.fullmatch(r"/api/firmware/(\d+)/content/.+", u.path)
+                if m:
+                    data = next(d for fw in fake.firmware.values() for i, _, d in fw if i == int(m.group(1)))
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
                     return
                 m = re.fullmatch(r"/api/roms/(\d+)/content/.+", u.path)
                 if m and int(m.group(1)) in fake.roms:

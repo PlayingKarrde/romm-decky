@@ -110,10 +110,16 @@ def _subdir(r: dict, f: dict) -> str:
 
 def rom_detail(r: dict) -> dict[str, Any]:
     d = rom_summary(r)
+    files = _game_files(r)
+    # RomM indexes a loose "Game.m3u" as its own ROM, separate from the folder that
+    # holds the discs; installing just the playlist would leave nothing to play.
+    playlist_only = bool(files) and all(f["name"].lower().endswith(".m3u") for f in files)
     d.update({
+        "playlist_for": [{"id": s.get("id"), "name": s.get("name") or s.get("fs_name")}
+                         for s in r.get("sibling_roms") or []] if playlist_only else None,
         "summary": (r.get("summary") or "")[:1500],
         "cover_large": r.get("path_cover_large"),
-        "files": _game_files(r),
+        "files": files,
         "updated_at": r.get("updated_at"),
         "collections": [{"id": c.get("id"), "name": c.get("name")} for c in r.get("user_collections") or []],
     })

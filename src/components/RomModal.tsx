@@ -89,7 +89,7 @@ export function RomModal({ rom, closeModal }: Props) {
       <DialogButton
         key="install"
         style={wide}
-        disabled={starting || !emu?.ok || rom.missing}
+        disabled={starting || !emu?.ok || rom.missing || !!detail?.playlist_for}
         onClick={async () => {
           setStarting(true);
           await install(rom.id, rom.name);
@@ -106,7 +106,7 @@ export function RomModal({ rom, closeModal }: Props) {
     : emu == null
       ? null
       : emu.ok
-        ? `Runs with ${emu.data.name}`
+        ? `Runs with ${emu.data.name}${emu.data.status === "core_missing" ? " (the core downloads on install)" : ""}`
         : emu.message;
 
   return (
@@ -122,6 +122,14 @@ export function RomModal({ rom, closeModal }: Props) {
             {emuLine && (
               <div style={{ fontSize: "13px", color: inst ? "#59bf40" : emu?.ok ? "#b8bcbf" : "#ffb84d" }}>
                 {emuLine}
+              </div>
+            )}
+            {detail?.playlist_for && (
+              <div style={{ fontSize: "13px", color: "#ffb84d" }}>
+                This is only a disc playlist.{" "}
+                {detail.playlist_for.length
+                  ? `Install ${detail.playlist_for.map((s) => s.name).join(" or ")} instead.`
+                  : "Install the game it belongs to instead."}
               </div>
             )}
             {rom.missing && (
