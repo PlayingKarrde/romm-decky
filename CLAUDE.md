@@ -2,15 +2,13 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): step 5 done; release prep in progress (not committed yet).**
-- **Done:** steps 0 to 5. The user verified the context menu, Update, Re-add and Reinstall on the Deck.
-- **Context menu:** the items sit under a **RomM ›** submenu (decky-ui `MenuGroup`, the user's request), falling back to flat "… (RomM)" items if `MenuGroup` isn't found. The submenu is deployed but not yet seen by the user.
-- **Release prep:**
-  - The README is written.
-  - `scripts/package.sh` builds `out/romm-decky-0.1.0.zip`: 20 files, with no `.env`, tests or docs.
-  - CI (`ci.yml`) and release (`release.yml`) are in place.
-- **Next:** create the GitHub repo (`gh` isn't installed on the PC), push `main`, and only then push the `v0.1.0` tag, so the release workflow runs.
-- The repo has its first commit on `main` and a repo-local git identity (PlayingKarrde, with the GitHub no-reply email). It has no GitHub remote yet.
+**Status (2026-11-06): steps 0 to 5 done; v0.1.0 release pending.**
+- Every step has been verified by the user on the Deck, including the single **RomM ›** submenu in the context menu.
+- **The GitHub repo exists:** `origin` is https://github.com/PlayingKarrde/romm-decky.git.
+  - This shell has no GitHub credentials, so the user pushes from their own terminal.
+  - Push `main` first, wait for CI to pass, then `git tag v0.1.0 && git push origin v0.1.0`, so the release workflow builds the zip.
+- **Next, after release:** v2 ideas are save/state sync (RomM `/api/saves`, `/api/states`, `/api/sync`), banner/logo art from SteamGridDB, and "send to Deck" install requests (`/api/devices/{id}/installs`).
+- The repo uses a repo-local git identity (PlayingKarrde, with the GitHub no-reply email).
 - The plan is in `docs/PLAN.md`.
 
 ## Why a separate plugin
