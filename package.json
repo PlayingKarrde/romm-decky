@@ -1,6 +1,6 @@
 {
   "name": "romm-decky",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Browse a self-hosted RomM server in Steam Gaming Mode and install ROMs as emulator shortcuts",
   "type": "module",
   "scripts": {

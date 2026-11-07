@@ -2,7 +2,7 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): v0.2.0 adds in-plugin updates.** Earlier release: v0.1.0.
+**Status (2026-11-07): v0.3.0 adds SteamGridDB artwork.** Earlier releases: v0.2.0 (in-plugin updates), v0.1.0.
 - **Self-update** (`common/selfupdate.py`, from decky-common): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
   - The panel shows "Update to X", and a toast appears once per new version.
   - Installing calls Decky's `utilities/install_plugin(url, "RomM", version, sha256, 2)`. The name must match `plugin.json`.
@@ -12,12 +12,12 @@ A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gami
 - **Pushing from WSL:** git uses Windows Git Credential Manager (`credential.helper` in the global config).
   - Pushes succeed, but GCM prints `Failed to write item to store. [0x8]` because it can't save the token, so it may ask for a browser sign-in again.
   - The repo is public, so CI and release status can be read without auth at `api.github.com/repos/PlayingKarrde/romm-decky/actions/runs`.
-- **SteamGridDB art (2026-11-07, unreleased):** an optional key set in the QAM "SteamGridDB artwork" panel (the shared `common/ArtworkPanel.tsx`), typed in or sent from a phone.
+- **SteamGridDB art (v0.3.0, 2026-11-07):** an optional key set in the QAM "SteamGridDB artwork" panel (the shared `common/ArtworkPanel.tsx`), typed in or sent from a phone.
   - The phone page is the shared `common/phoneform.py` + `PhoneModal.tsx`, through `start_sgdb_phone`/`get_sgdb_phone_status`/`stop_sgdb_phone`. It's separate from `start_pairing`, which is RomM device auth. Verified on the Deck from another LAN machine.
   - `get_art_plan(rom_id)`: the RomM cover wins the capsule, and SGDB fills wide, hero and logo. Square covers are optional.
   - Matching uses RomM's own `sgdb_id` when it has one (about 25% of the library), then `steam_id`, then an exact title. Unidentified files get no SGDB art.
   - Art is applied on install and re-add, and from "RomM › Refresh artwork" in the library context menu. A reinstall keeps existing art.
-  - Backend calls verified on the Deck. `scripts/romm.py art <id>` shows a plan (`SGDB_KEY` in `.env`).
+  - Verified on the Deck end to end: the phone key flow, plus Refresh artwork writing the capsule, wide, hero, logo and logo position into `grid/`. `scripts/romm.py art <id>` shows a plan (`SGDB_KEY` in `.env`).
 - **Next (v2 ideas):** save/state sync (RomM `/api/saves`, `/api/states`, `/api/sync`), and "send to Deck" install requests (`/api/devices/{id}/installs`).
 - The repo uses a repo-local git identity (PlayingKarrde, with the GitHub no-reply email).
 - The plan is in `docs/PLAN.md`.
