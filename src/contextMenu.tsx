@@ -71,10 +71,12 @@ function splice(children: any[], appid: number) {
   }
   const items = itemsFor(appid);
   if (!items.length) return;
-  let at = children.findIndex((item) =>
+  const at = children.findIndex((item) =>
     findInReactTree(item, (x: any) => x?.onSelected && x.onSelected.toString().includes("AppProperties")),
   );
-  if (at < 0) at = children.length;
+  // Only the top-level menu has "Properties…". The "Manage ›" submenu is rendered by the
+  // same component and passes isAppMenu, so without this guard it got a second copy.
+  if (at < 0) return;
   children.splice(at, 0, ...items);
 }
 
