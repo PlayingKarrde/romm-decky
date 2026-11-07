@@ -2,12 +2,12 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): steps 0 to 5 done; v0.1.0 release pending.**
-- Every step has been verified by the user on the Deck, including the single **RomM ›** submenu in the context menu.
-- **The GitHub repo exists:** `origin` is https://github.com/PlayingKarrde/romm-decky.git.
-  - This shell has no GitHub credentials, so the user pushes from their own terminal.
-  - Push `main` first, wait for CI to pass, then `git tag v0.1.0 && git push origin v0.1.0`, so the release workflow builds the zip.
-- **Next, after release:** v2 ideas are save/state sync (RomM `/api/saves`, `/api/states`, `/api/sync`), banner/logo art from SteamGridDB, and "send to Deck" install requests (`/api/devices/{id}/installs`).
+**Status (2026-11-06): v0.1.0 released.** Release page: https://github.com/PlayingKarrde/romm-decky/releases/tag/v0.1.0
+- Steps 0 to 5 are done, and every step was verified by the user on the Deck.
+- **Pushing from WSL:** git uses Windows Git Credential Manager (`credential.helper` in the global config).
+  - Pushes succeed, but GCM prints `Failed to write item to store. [0x8]` because it can't save the token, so it may ask for a browser sign-in again.
+  - The repo is public, so CI and release status can be read without auth at `api.github.com/repos/PlayingKarrde/romm-decky/actions/runs`.
+- **Next (v2 ideas):** save/state sync (RomM `/api/saves`, `/api/states`, `/api/sync`), banner/logo art from SteamGridDB, and "send to Deck" install requests (`/api/devices/{id}/installs`).
 - The repo uses a repo-local git identity (PlayingKarrde, with the GitHub no-reply email).
 - The plan is in `docs/PLAN.md`.
 
