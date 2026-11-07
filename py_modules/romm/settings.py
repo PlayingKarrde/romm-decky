@@ -17,7 +17,8 @@ class Settings:
     username: str = ""
     # Stable per-install id sent as client_device_identifier when pairing.
     device_identifier: str = ""
-    custom_install_dir: str = ""
+    # Where installs go ("" = automatic: EmuDeck's roms folder if present, else ~/Games/RomM).
+    install_root: str = ""
     # Put each installed game in a Steam collection named after its platform.
     steam_platform_collections: bool = True
     # RomM platform slug -> emulator id, overriding the default choice.
@@ -33,7 +34,7 @@ class Settings:
             "server_url": self.server_url,
             "has_token": bool(self.token),
             "username": self.username,
-            "custom_install_dir": self.custom_install_dir,
+            "install_root": self.install_root,
             "steam_platform_collections": self.steam_platform_collections,
             "platform_overrides": dict(self.platform_overrides),
         }

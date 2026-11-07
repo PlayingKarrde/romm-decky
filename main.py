@@ -1,15 +1,19 @@
 import asyncio
 import dataclasses
+import os
 import platform
 import socket
+import threading
 from typing import Any, Callable
 
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from romm import library
+from romm import emulators, jobs, launchers, library
 from romm.client import RommClient, RommError, normalize_base_url
 from romm.images import ImageCache
+from romm.installed import InstalledStore, default_root, install_roots
+from romm.installer import check_space, delete_owned
 from romm.pairing import DevicePairing
 from romm.settings import Settings, SettingsStore
 
@@ -31,6 +35,9 @@ class Plugin:
     store: SettingsStore
     settings: Settings
     images: ImageCache
+    installed: InstalledStore
+    jobs_root: str
+    _install_lock: threading.Lock
     pairing: DevicePairing | None = None
 
     def _client(self) -> RommClient:
@@ -172,12 +179,143 @@ class Plugin:
         """Full-size original as {content_type, size, chunks}; fetch slices with get_image_chunk."""
         return await self._call(lambda: self.images.describe_original(self._client(), image_url))
 
+    # ---- install -----------------------------------------------------------
+
+    def _home(self) -> str:
+        return decky.DECKY_USER_HOME
+
+    async def get_install_roots(self) -> dict:
+        """{roots: [{id, label, path, free}], selected: path}."""
+        def run():
+            roots = install_roots(self._home(), self.settings.install_root)
+            return {"roots": roots, "selected": default_root(self._home(), self.settings.install_root)}
+        return await self._call(run)
+
+    async def set_install_root(self, path: str) -> dict:
+        """'' = automatic (EmuDeck's roms folder if present, else ~/Games/RomM)."""
+        path = (path or "").strip()
+        if path and not os.path.isabs(path):
+            return _err(RommError("Install folder must be an absolute path", code="bad_path"))
+        self.settings = dataclasses.replace(self.settings, install_root=os.path.normpath(path) if path else "")
+        self.store.save(self.settings)
+        log.info("Install root set to %s", self.settings.install_root or "(automatic)")
+        return _ok(self.settings.public())
+
+    async def get_emulator(self, platform_slug: str, platform_fs_slug: str = "") -> dict:
+        """What would run this platform: {name, ...} or an error explaining what's missing."""
+        return await self._call(lambda: emulators.resolve(self._home(), platform_slug, platform_fs_slug))
+
+    async def start_install(self, rom_id: int) -> dict:
+        def run():
+            rom = library.rom_detail(self._client().get_rom(int(rom_id)))
+            emulators.resolve(self._home(), rom["platform_slug"], rom["platform_fs_slug"])  # fail early
+            root = default_root(self._home(), self.settings.install_root)
+            os.makedirs(root, exist_ok=True)
+            total = sum(f["size"] for f in rom["files"])
+            # Rough check here (adopted files would need less); the worker checks exactly.
+            if not self.installed.get(rom_id):
+                check_space(root, total)
+            with self._install_lock:
+                active = [j for j in jobs.list_jobs(self.jobs_root)
+                          if str(j.get("rom_id")) == str(rom_id) and j.get("phase") not in jobs.TERMINAL]
+                if active:
+                    raise RommError("This ROM is already being installed", code="busy")
+                job_dir = jobs.create_job(self.jobs_root, {
+                    "rom_id": str(rom_id), "title": rom["name"], "root": root, "total_bytes": total,
+                    "server_url": self.settings.server_url, "settings_path": self.store.path,
+                })
+            how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
+            log.info("Install %s (%s) -> %s via %s", rom_id, rom["name"], root, how)
+            return {"job_id": os.path.basename(job_dir)}
+        return await self._call(run)
+
+    async def get_jobs(self) -> dict:
+        def run():
+            out = []
+            for j in jobs.list_jobs(self.jobs_root):
+                j = dict(j)
+                j.pop("result", None)  # finalize_install reads it; the UI doesn't need it
+                out.append(j)
+            return out
+        return await self._call(run)
+
+    async def cancel_install(self, job_id: str) -> dict:
+        def run():
+            jd = os.path.join(self.jobs_root, os.path.basename(job_id))
+            if not os.path.isdir(jd):
+                raise RommError("No such job", code="not_found")
+            jobs.request_cancel(jd)
+        return await self._call(run)
+
+    async def dismiss_job(self, job_id: str) -> dict:
+        return await self._call(lambda: jobs.remove_job(self.jobs_root, job_id))
+
+    async def finalize_install(self, job_id: str) -> dict:
+        """After the worker finishes: write the launch script and the install record.
+
+        Returns what the frontend needs for the Steam shortcut:
+        {rom_id, name, exe, start_dir, cover, collection, appid (previous, if any)}.
+        """
+        def run():
+            st = jobs.read_state(os.path.join(self.jobs_root, os.path.basename(job_id)))
+            if not st or st.get("phase") != "done" or not st.get("result"):
+                raise RommError("That install hasn't finished", code="not_ready")
+            res, rom_id = st["result"], st["rom_id"]
+            rom = res["rom"]
+            emu = emulators.resolve(self._home(), rom["platform_slug"], rom["platform_fs_slug"])
+            target = os.path.join(res["platform_dir"], res["launch_target"])
+            exe = launchers.write(self._home(), rom_id, rom["name"], emulators.argv(emu, target))
+            prev = self.installed.get(rom_id) or {}
+            coll = library.collection_name(rom["platform_slug"], rom["platform_name"])
+            self.installed.put(rom_id, {
+                "title": rom["name"], "platform_id": rom["platform_id"], "platform_slug": rom["platform_slug"],
+                "platform_fs_slug": rom["platform_fs_slug"], "platform_name": rom["platform_name"],
+                "cover": rom["cover"], "platform_dir": res["platform_dir"], "game_dir_rel": res["game_dir_rel"],
+                "game_dir_owned": res["game_dir_owned"], "files": res["files"],
+                "launch_target": res["launch_target"], "size": res["size"], "emulator": emu["name"],
+                "launcher": exe,
+            })
+            log.info("Finalized %s (%s): %s via %s", rom_id, rom["name"], target, emu["name"])
+            return {
+                "rom_id": str(rom_id), "name": rom["name"], "exe": exe, "start_dir": os.path.dirname(exe),
+                "cover": rom.get("cover_large") or rom.get("cover"),
+                "collection": coll if self.settings.steam_platform_collections else None,
+                "appid": prev.get("appid"),
+            }
+        return await self._call(run)
+
+    async def set_installed_appid(self, rom_id: str, appid: int, collection: str | None = None) -> dict:
+        return await self._call(lambda: self.installed.put(rom_id, {"appid": int(appid), "collection": collection}))
+
+    async def get_installed(self) -> dict:
+        return await self._call(lambda: list(self.installed.load().values()))
+
+    async def uninstall_rom(self, rom_id: str, delete_existing: bool = False) -> dict:
+        """Frontend removes the Steam shortcut first. Deletes the files we downloaded, and
+        files that were already there only if delete_existing is set."""
+        def run():
+            rec = self.installed.get(rom_id)
+            if not rec:
+                raise RommError("This ROM isn't installed", code="not_found")
+            removed = delete_owned(rec, include_adopted=bool(delete_existing))
+            launchers.remove(self._home(), rom_id)
+            self.installed.remove(rom_id)
+            kept = [] if delete_existing else [f["rel"] for f in rec.get("files") or [] if not f.get("owned")]
+            log.info("Uninstalled %s (%s): removed %d files, kept %d adopted", rom_id, rec.get("title"),
+                     len(removed), len(kept))
+            return {"removed": len(removed), "kept": len(kept)}
+        return await self._call(run)
+
     # ---- lifecycle ---------------------------------------------------------
 
     async def _main(self):
         self.store = SettingsStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.settings = self.store.load()
         self.images = ImageCache(decky.DECKY_PLUGIN_RUNTIME_DIR)
+        self.installed = InstalledStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
+        self.jobs_root = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "jobs")
+        self._install_lock = threading.Lock()
+        os.makedirs(self.jobs_root, exist_ok=True)
         log.info("RomM plugin loaded (configured=%s)", self.settings.configured)
 
     async def _unload(self):

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Collection,
   CollectionGroup,
+  InstalledRom,
   Platform,
   RomScope,
   RomSummary,
@@ -11,13 +12,14 @@ import {
   listPlatforms,
   listRoms,
 } from "../backend";
+import { activeJobFor, installedFor, useInstallState } from "../installs";
 import { Cover } from "./Cover";
 import { RomModal } from "./RomModal";
 
 export const LIBRARY_ROUTE = "/romm";
 const PAGE_SIZE = 50;
 
-export type LibraryTab = "platforms" | "collections";
+export type LibraryTab = "platforms" | "collections" | "installed";
 let nextTab: LibraryTab = "platforms";
 
 /** Open the full-screen library, optionally on a given tab. */
@@ -53,6 +55,77 @@ type Scope = { scope: RomScope; id: number | string | null; name: string };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const ellipsis = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
+
+/** An install record shaped like a list item, for the Installed tab and the modal. */
+function installedAsRom(i: InstalledRom): RomSummary {
+  return {
+    id: Number(i.rom_id),
+    name: i.title,
+    platform_id: i.platform_id,
+    platform_slug: i.platform_slug,
+    platform_fs_slug: i.platform_fs_slug,
+    platform_name: i.platform_name,
+    fs_name: "",
+    size: i.size,
+    cover: i.cover,
+    multi_file: i.files.length > 1,
+    regions: [],
+    missing: false,
+  };
+}
+
+function RomCard({ rom, showPlatform }: { rom: RomSummary; showPlatform: boolean }) {
+  const snap = useInstallState();
+  const job = activeJobFor(snap, rom.id);
+  const inst = installedFor(snap, rom.id);
+  const badge = job
+    ? { text: job.total ? `${Math.floor((100 * job.done) / job.total)}%` : "Installing", color: "#1a9fff" }
+    : inst
+      ? { text: "Installed", color: "#59bf40" }
+      : null;
+  const open = () => showModal(<RomModal rom={rom} />);
+  return (
+    <Focusable className="rm-card" focusClassName="rm-focus" noFocusRing onActivate={open} onClick={open}>
+      <Cover url={rom.cover} title={rom.name} />
+      <div style={{ marginTop: "6px", fontSize: "13px", ...ellipsis }}>{rom.name}</div>
+      <div style={{ fontSize: "11px", color: "#8b929a", ...ellipsis }}>
+        {[showPlatform ? rom.platform_name : null, formatBytes(rom.size)].filter(Boolean).join(" · ")}
+        {badge && <span style={{ color: badge.color }}> · {badge.text}</span>}
+      </div>
+    </Focusable>
+  );
+}
+
+function InstalledGrid({ query }: { query: string }) {
+  const { installed } = useInstallState();
+  const q = query.toLowerCase();
+  const roms = installed
+    .filter((i) => !q || i.title.toLowerCase().includes(q))
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .map(installedAsRom);
+  return (
+    <>
+      <div style={{ fontSize: "12px", color: "#8b929a", padding: "0 4px" }}>{plural(roms.length, "game")}</div>
+      <Focusable
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+          gap: "14px",
+          padding: "8px 4px",
+        }}
+      >
+        {roms.map((r) => (
+          <RomCard key={r.id} rom={r} showPlatform />
+        ))}
+      </Focusable>
+      {!roms.length && (
+        <div style={{ color: "#8b929a", padding: "24px 0" }}>
+          {query ? `No installed games match “${query}”.` : "Nothing installed yet."}
+        </div>
+      )}
+    </>
+  );
+}
 
 const fail = (e: unknown) => ({ ok: false as const, error: { message: String(e), status: null, code: null } });
 
@@ -224,8 +297,6 @@ function RomGrid({ scope, query }: { scope: Scope; query: string }) {
     return () => io.disconnect();
   }, [pages.hasMore, pages.loading, pages.error, pages.next]);
 
-  const open = (r: RomSummary) => showModal(<RomModal rom={r} />);
-
   return (
     <>
       <div style={{ fontSize: "12px", color: "#8b929a", padding: "0 4px" }}>
@@ -241,20 +312,7 @@ function RomGrid({ scope, query }: { scope: Scope; query: string }) {
         }}
       >
         {pages.items.map((r) => (
-          <Focusable
-            key={r.id}
-            className="rm-card"
-            focusClassName="rm-focus"
-            noFocusRing
-            onActivate={() => open(r)}
-            onClick={() => open(r)}
-          >
-            <Cover url={r.cover} title={r.name} />
-            <div style={{ marginTop: "6px", fontSize: "13px", ...ellipsis }}>{r.name}</div>
-            <div style={{ fontSize: "11px", color: "#8b929a", ...ellipsis }}>
-              {[showPlatform ? r.platform_name : null, formatBytes(r.size)].filter(Boolean).join(" · ")}
-            </div>
-          </Focusable>
+          <RomCard key={r.id} rom={r} showPlatform={showPlatform} />
         ))}
       </Focusable>
       <div ref={sentinel} style={{ height: "1px" }} />
@@ -286,10 +344,12 @@ export function LibraryPage() {
 
   // Typing at the top level searches every ROM; inside a platform/collection it searches that.
   // Memoised: a fresh object each render would re-trigger the page loader forever.
+  // The Installed tab filters locally instead of searching the server.
   const gridScope = useMemo<Scope | null>(
-    () => scope ?? (debounced ? { scope: "all", id: null, name: "All games" } : null),
-    [scope, debounced],
+    () => scope ?? (debounced && tab !== "installed" ? { scope: "all", id: null, name: "All games" } : null),
+    [scope, debounced, tab],
   );
+  const { installed } = useInstallState();
 
   const drill = (s: Scope) => {
     setScope(s);
@@ -302,7 +362,15 @@ export function LibraryPage() {
     setDebounced("");
   };
 
-  const crumb = scope ? scope.name : debounced ? "Search" : tab === "platforms" ? "Platforms" : "Collections";
+  const crumb = scope
+    ? scope.name
+    : tab === "installed"
+      ? "Installed"
+      : debounced
+        ? "Search"
+        : tab === "platforms"
+          ? "Platforms"
+          : "Collections";
 
   return (
     <Focusable
@@ -343,6 +411,7 @@ export function LibraryPage() {
             [
               ["platforms", "Platforms"],
               ["collections", "Collections"],
+              ["installed", `Installed (${installed.length})`],
             ] as [LibraryTab, string][]
           ).map(([id, label]) => (
             <DialogButton
@@ -385,6 +454,8 @@ export function LibraryPage() {
 
       {gridScope ? (
         <RomGrid scope={gridScope} query={debounced} />
+      ) : tab === "installed" ? (
+        <InstalledGrid query={debounced} />
       ) : tab === "platforms" ? (
         <PlatformTiles onOpen={(p) => drill({ scope: "platform", id: p.id, name: p.name })} />
       ) : (

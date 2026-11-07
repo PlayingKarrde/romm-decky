@@ -2,19 +2,14 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): step 2 (browsing) done and committed.**
-- **Done:**
-  - Steps 0 and 1. Pairing has been verified on the Deck.
-  - The library page at `/romm` has two tabs:
-    - Platforms: tiles, with duplicate names shown with their folder.
-    - Collections: Mine, Series, Franchises, Genres, Companies and Modes.
-  - Choosing a tile drills into a paged ROM grid with covers and infinite scroll. Search at the top level covers all ROMs; inside a platform or collection it covers just that.
-  - The ROM detail modal shows details only; its Install button is disabled.
-  - Verified with `cdp.py` screenshots, and by the user on the Deck.
-- **B on the library page:** inside a platform or collection it goes up one level, and at the top level it leaves the page.
-  - Once a Focusable has `onCancelButton`, Steam treats B as handled and skips its default back action, so the handler must call `Navigation.NavigateBack()` itself.
-  - Confirmed on the Deck: before that fix, B at the top level did nothing.
-- **Next:** step 3, installing SNES through RetroArch from end to end.
+**Status (2026-11-06): step 3 (install end to end) done and committed.**
+- **Done:** steps 0 to 2.
+- **Step 3, verified with `cdp.py`:**
+  - ActRaiser (SNES) adopted an existing EmuDeck file.
+  - Kabuki (NES, `.zip`) downloaded.
+  - Both got a Steam shortcut pointing at a launch script, the cover as the portrait capsule, and the "SNES"/"NES" collection.
+- **Verified by the user in Gaming Mode:** ActRaiser and Kabuki launch, and uninstall works with one press, including "Delete files too".
+- **Next:** step 4 (the emulator layer: overrides, standalone emulators, core downloads, BIOS), then step 5.
 - The repo has its first commit on `main` and a repo-local git identity (PlayingKarrde, with the GitHub no-reply email). It has no GitHub remote yet.
 - The plan is in `docs/PLAN.md`.
 
@@ -57,12 +52,29 @@ Tender (github.com/danielcopper/decky-romm-sync) already exists. The user tried 
 - **Compat tool:** always cleared, with `SpecifyCompatTool(appid, "")`.
 - **BIOS:** fetched from RomM's firmware endpoint into the chosen emulator's BIOS dir (RetroArch `system/`, DuckStation and PCSX2 `bios/`). Files already present with the same hash are skipped.
 - **Multi-disc:** generate an `.m3u`. **Archives:** extract only when the platform's map entry says so.
-- **Install layout:** `<target>/RomM/<platform_slug>/<name>/`, with a `.romm.json` marker.
+- **Install layout (2026-11-06, the user's choice):** EmuDeck style, `<root>/<platform>/<file>`. A multi-file game gets `<root>/<platform>/<fs_name>/` plus an `.m3u`.
+  - The default root is `~/Emulation/roms` when it exists, otherwise `~/Games/RomM`. It can be changed in the QAM "Install location" panel (an SD card, or any folder).
+  - The platform folder is RomM's `fs_slug`; an existing folder whose name differs only in case is reused (MAME vs mame).
+  - **There are no marker files.** `installed.json` records each file with `owned` set to true (we downloaded it) or false (adopted).
+  - **Adoption:** a file already present with a matching size and MD5 is adopted instead of downloaded, also the user's choice. Uninstall deletes only owned files whose size is unchanged. Adopted files are kept unless the user picks "Delete files too" in the uninstall dialog, which the user asked for on 2026-11-06.
+  - A different file already at the target path stops the install with a `conflict` error. It is never overwritten.
+- **Launching:** each shortcut runs `~/.local/share/romm-decky/launch/<rom_id>.sh`, which execs the resolved emulator command with `"$@"`.
+  - Steam's launch options stay empty, and the user's own options pass through.
+  - Changing the emulator means rewriting the script, never the shortcut.
 - **Browsing:** tabs for Platforms, RomM Collections and Installed. Platforms and Collections each drill into a paged ROM grid with search.
-- **Steam collections:** each installed game goes into a per-platform Steam collection (for example "SNES").
+- **Steam collections:** each installed game goes into a per-platform Steam collection (for example "SNES"). The names come from `library.COLLECTION_NAMES`, falling back to RomM's display name.
+  - **Verified on the Deck:**
+    - `collectionStore.NewUnsavedCollection(name, undefined, [overview])` followed by `.Save()` creates a collection.
+    - For an existing one, `GetUserCollectionsByName(name)[0].AsDragDropCollection().AddApps([ov])` followed by `.Save()` adds the app.
+    - Removing the shortcut drops it from the collection.
   - **RomM collections are never mirrored into Steam.** The user rejected this on 2026-11-06. RomM collections, including the virtual ones, can only be browsed in the plugin.
   - Verify the `collectionStore` calls with `cdp.py` before building on them.
 - **Auth:** pair through RomM's device-auth flow (see RomM API below). The plugin stores only the client token, in `settings.json` (mode 0600). Username and password exist only in the dev `.env`.
+
+## Steam UI gotchas (verified on the Deck)
+- **B on a page with drill-down:** once a Focusable has `onCancelButton`, Steam treats B as handled and skips its default back action. The handler must call `Navigation.NavigateBack()` itself at the top level. See `LibraryPage`.
+- **`ConfirmModal` doesn't close when `onOK` is async.** The work ran, the dialog stayed open, and a second press errored. In the handlers, only resolve a promise; do the work after the dialog closes. See `confirmUninstall`. `strMiddleButtonText`/`onMiddleButton` add a third button.
+- **After `systemctl restart plugin_loader`,** `DeckyBackend` takes a few seconds to appear. `cdp.py` scripts should wait for it before calling `rm(...)`.
 
 ## RomM API (verified 2026-11-06 against the user's server, RomM 5.4.1)
 The schema is saved at `docs/openapi.json`. The client is `py_modules/romm/client.py`, and `scripts/romm.py test|platforms|roms|rom|collections|firmware|fetch` exercises it using `.env` (`ROMM_URL`, and either `ROMM_TOKEN` or `ROMM_USER`/`ROMM_PASS`).
@@ -85,7 +97,8 @@ The schema is saved at `docs/openapi.json`. The client is `py_modules/romm/clien
   - Use `GET /api/roms/{id}/content/{file_name}?file_ids={file_id}`, one file at a time. It serves the raw file, supports `Range` (206), and has an ETag. Resume has been tested and the MD5 matched.
   - Without `file_ids`, a multi-file ROM comes back as a zip (with an `.m3u` if applicable). **Don't use that path:** download per file and write our own `.m3u`. That gives resumable downloads, no extraction, and no need for double the disk space.
   - `/api/roms/{id}/files/content/{name}` returned 404 when given a ROM id; avoid it.
-  - Every file has an `md5_hash`, so verify after downloading.
+  - Every file has an `md5_hash`, but **for archives (`.zip`, `.7z`) it's the MD5 of the ROM inside**, because RomM identifies games by content. Verified with a `.zip`.
+    - `installer.content_matches` checks the member's MD5 for a one-file zip, and only the size for 7z and multi-file zips.
 - **Covers:** `path_cover_small`/`path_cover_large`, such as `/assets/romm/resources/roms/<pid>/<rid>/cover/small.png?ts=...`. These are PNGs of about 55 KB and are served without auth on this server; the client sends auth anyway.
 - **Collections:**
   - `/api/collections` holds the user collections; this server has only "Favorites".

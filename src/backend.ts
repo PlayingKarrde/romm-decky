@@ -7,7 +7,7 @@ export type PublicSettings = {
   server_url: string;
   has_token: boolean;
   username: string;
-  custom_install_dir: string;
+  install_root: string;
   steam_platform_collections: boolean;
   platform_overrides: Record<string, string>;
 };
@@ -101,6 +101,87 @@ export type ImageInfo = { thumb: string } | { content_type: string; size: number
 export const getImage = callable<[image_url: string], Result<ImageInfo>>("get_image");
 export const getImageChunk = callable<[image_url: string, index: number], Result<string>>("get_image_chunk");
 export const saveThumbnail = callable<[image_url: string, data_url: string], Result<null>>("save_thumbnail");
+
+// ---- install ---------------------------------------------------------------
+
+export type InstallRoot = { id: string; label: string; path: string; free: number | null };
+export type JobPhase =
+  | "queued"
+  | "starting"
+  | "checking"
+  | "downloading"
+  | "finalizing"
+  | "done"
+  | "error"
+  | "cancelled";
+export type JobState = {
+  job_id: string;
+  rom_id: string;
+  title: string | null;
+  phase: JobPhase;
+  done: number;
+  total: number | null;
+  speed?: number;
+  error?: string;
+  error_code?: string;
+  kind?: "install";
+};
+export const ACTIVE_PHASES: JobPhase[] = ["queued", "starting", "checking", "downloading", "finalizing"];
+
+export type InstalledFile = { rel: string; size: number; owned: boolean };
+export type InstalledRom = {
+  rom_id: string;
+  title: string;
+  platform_id: number;
+  platform_slug: string;
+  platform_fs_slug: string;
+  platform_name: string;
+  cover: string | null;
+  platform_dir: string;
+  game_dir_rel: string;
+  files: InstalledFile[];
+  launch_target: string;
+  size: number;
+  emulator: string;
+  launcher: string;
+  appid?: number | null;
+  collection?: string | null;
+  installed_at: number;
+};
+
+export type FinalizeInfo = {
+  rom_id: string;
+  name: string;
+  exe: string;
+  start_dir: string;
+  cover: string | null;
+  collection: string | null;
+  appid: number | null;
+};
+
+export type EmulatorInfo = { emulator: string; name: string; core?: string };
+
+export const getInstallRoots = callable<[], Result<{ roots: InstallRoot[]; selected: string }>>("get_install_roots");
+export const setInstallRoot = callable<[path: string], Result<PublicSettings>>("set_install_root");
+export const getEmulator = callable<[platform_slug: string, platform_fs_slug: string], Result<EmulatorInfo>>(
+  "get_emulator",
+);
+export const startInstall = callable<[rom_id: number], Result<{ job_id: string }>>("start_install");
+export const getJobs = callable<[], Result<JobState[]>>("get_jobs");
+export const cancelInstall = callable<[job_id: string], Result<null>>("cancel_install");
+export const dismissJob = callable<[job_id: string], Result<null>>("dismiss_job");
+export const finalizeInstall = callable<[job_id: string], Result<FinalizeInfo>>("finalize_install");
+export const setInstalledAppid = callable<
+  [rom_id: string, appid: number, collection: string | null],
+  Result<InstalledRom>
+>("set_installed_appid");
+export const getInstalled = callable<[], Result<InstalledRom[]>>("get_installed");
+export const uninstallRom = callable<[rom_id: string, delete_existing: boolean], Result<{ removed: number; kept: number }>>(
+  "uninstall_rom",
+);
+export const getArtwork = callable<[image_url: string], Result<{ content_type: string; size: number; chunks: number }>>(
+  "get_artwork",
+);
 
 export function formatBytes(n: number | null | undefined): string {
   if (n == null) return "";

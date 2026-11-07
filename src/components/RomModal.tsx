@@ -1,17 +1,65 @@
-import { DialogButton, Focusable, ModalRoot, SteamSpinner } from "@decky/ui";
-import { useEffect, useState } from "react";
-import { RomDetail, RomSummary, formatBytes, getRom } from "../backend";
+import { ConfirmModal, DialogButton, Focusable, ModalRoot, Navigation, SteamSpinner, showModal } from "@decky/ui";
+import { ReactElement, useEffect, useState } from "react";
+import { EmulatorInfo, InstalledRom, RomDetail, RomSummary, formatBytes, getEmulator, getRom } from "../backend";
+import { activeJobFor, appIdOf, install, installedFor, uninstall, useInstallState } from "../installs";
 import { Cover } from "./Cover";
 
 type Props = { rom: RomSummary; closeModal?: () => void };
 
-/** ROM detail. Install/uninstall arrive with the emulator layer (plan step 3). */
+/**
+ * Confirm, then uninstall. The dialog's handlers only record the choice: Steam's
+ * ConfirmModal doesn't close on an async onOK, so the work runs after it has closed.
+ */
+export async function confirmUninstall(inst: InstalledRom, onDone?: () => void): Promise<void> {
+  const adopted = inst.files.filter((f) => !f.owned).length;
+  const owned = inst.files.length - adopted;
+  const choice = await new Promise<"keep" | "delete" | null>((resolve) => {
+    if (!adopted) {
+      showModal(
+        <ConfirmModal
+          strTitle={`Uninstall ${inst.title}?`}
+          strDescription={`This removes ${inst.title} from Steam and deletes its ROM files (${formatBytes(inst.size)}). Saves are kept.`}
+          strOKButtonText="Uninstall"
+          onOK={() => resolve("keep")}
+          onCancel={() => resolve(null)}
+        />,
+      );
+      return;
+    }
+    const what = owned
+      ? `${adopted} of its files were already on the Deck before it was installed.`
+      : "Its ROM files were already on the Deck before it was installed.";
+    showModal(
+      <ConfirmModal
+        strTitle={`Uninstall ${inst.title}?`}
+        strDescription={`This removes ${inst.title} from Steam${owned ? " and deletes the files it downloaded" : ""}. ${what} Keep them, or delete them too? Saves are kept either way.`}
+        strOKButtonText="Keep files"
+        strMiddleButtonText="Delete files too"
+        onOK={() => resolve("keep")}
+        onMiddleButton={() => resolve("delete")}
+        onCancel={() => resolve(null)}
+      />,
+    );
+  });
+  if (!choice) return;
+  if (await uninstall(inst, choice === "delete")) onDone?.();
+}
+
 export function RomModal({ rom, closeModal }: Props) {
   const [detail, setDetail] = useState<RomDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [emu, setEmu] = useState<{ ok: true; data: EmulatorInfo } | { ok: false; message: string } | null>(null);
+  const [starting, setStarting] = useState(false);
+  const snap = useInstallState();
+  const job = activeJobFor(snap, rom.id);
+  const inst = installedFor(snap, rom.id);
+  const appId = appIdOf(inst);
 
   useEffect(() => {
     getRom(rom.id).then((r) => (r.ok ? setDetail(r.data) : setError(r.error.message)));
+    getEmulator(rom.platform_slug, rom.platform_fs_slug).then((r) =>
+      setEmu(r.ok ? { ok: true, data: r.data } : { ok: false, message: r.error.message }),
+    );
   }, [rom.id]);
 
   const files = detail?.files ?? [];
@@ -21,6 +69,45 @@ export function RomModal({ rom, closeModal }: Props) {
   const GAP = "20px";
   const COVER_W = "180px";
   const wide = { flex: 1, minWidth: 0 };
+
+  let actions: ReactElement[];
+  if (job) {
+    const pct = job.total ? ` ${Math.floor((100 * job.done) / job.total)}%` : "";
+    actions = [
+      <DialogButton key="busy" disabled style={wide}>
+        {job.phase === "done" ? "Adding to Steam…" : `Installing…${pct}`}
+      </DialogButton>,
+    ];
+  } else if (inst) {
+    actions = [
+      <DialogButton key="uninstall" style={wide} onClick={() => void confirmUninstall(inst, closeModal)}>
+        Uninstall
+      </DialogButton>,
+    ];
+  } else {
+    actions = [
+      <DialogButton
+        key="install"
+        style={wide}
+        disabled={starting || !emu?.ok || rom.missing}
+        onClick={async () => {
+          setStarting(true);
+          await install(rom.id, rom.name);
+          setStarting(false);
+        }}
+      >
+        Install
+      </DialogButton>,
+    ];
+  }
+
+  const emuLine = inst
+    ? `Installed · ${inst.emulator}`
+    : emu == null
+      ? null
+      : emu.ok
+        ? `Runs with ${emu.data.name}`
+        : emu.message;
 
   return (
     <ModalRoot closeModal={closeModal}>
@@ -32,6 +119,11 @@ export function RomModal({ rom, closeModal }: Props) {
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "10px" }}>
             <div style={{ fontSize: "24px", fontWeight: "bold" }}>{rom.name}</div>
             <div style={{ color: "#8b929a", fontSize: "14px" }}>{meta.join(" · ")}</div>
+            {emuLine && (
+              <div style={{ fontSize: "13px", color: inst ? "#59bf40" : emu?.ok ? "#b8bcbf" : "#ffb84d" }}>
+                {emuLine}
+              </div>
+            )}
             {rom.missing && (
               <div style={{ fontSize: "13px", color: "#ffb84d" }}>RomM reports this ROM's files as missing.</div>
             )}
@@ -56,11 +148,22 @@ export function RomModal({ rom, closeModal }: Props) {
           </div>
         </div>
 
+        {/* First slot sits under the poster, the rest under the text. */}
         <Focusable style={{ display: "flex", gap: GAP }} flow-children="horizontal">
-          <div style={{ width: COVER_W, flexShrink: 0 }} />
-          <DialogButton style={wide} disabled>
-            Install (coming soon)
-          </DialogButton>
+          {appId ? (
+            <DialogButton
+              style={{ width: COVER_W, minWidth: 0, flexShrink: 0 }}
+              onClick={() => {
+                closeModal?.();
+                Navigation.Navigate(`/library/app/${appId}`);
+              }}
+            >
+              Open in library
+            </DialogButton>
+          ) : (
+            <div style={{ width: COVER_W, flexShrink: 0 }} />
+          )}
+          {actions}
           <DialogButton style={wide} onClick={closeModal}>
             Close
           </DialogButton>

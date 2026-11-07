@@ -132,3 +132,23 @@ def virtual_summary(kind: str, items: list[dict]) -> list[dict]:
     out = [collection_summary(c, "virtual") for c in items if c.get("rom_count")]
     out.sort(key=lambda c: (c["name"] or "").lower())
     return out
+
+
+# Steam collection names for installed games, by RomM platform slug. RomM's own
+# "abbreviation" is too inconsistent (e.g. "Genesis/MegaDrive", "turbografx16").
+COLLECTION_NAMES = {
+    "nes": "NES", "famicom": "Famicom", "fds": "Famicom Disk System", "snes": "SNES", "sfc": "Super Famicom",
+    "n64": "N64", "gb": "Game Boy", "gbc": "Game Boy Color", "gba": "Game Boy Advance", "nds": "Nintendo DS",
+    "3ds": "Nintendo 3DS", "ngc": "GameCube", "wii": "Wii", "wiiu": "Wii U", "switch": "Switch",
+    "virtualboy": "Virtual Boy", "genesis": "Genesis", "sms": "Master System", "gamegear": "Game Gear",
+    "segacd": "Sega CD", "sega32x": "32X", "saturn": "Saturn", "dc": "Dreamcast", "psx": "PlayStation",
+    "ps2": "PS2", "ps3": "PS3", "psp": "PSP", "psvita": "PS Vita", "tg16": "PC Engine",
+    "turbografx-cd": "PC Engine CD", "neogeo": "Neo Geo", "ngp": "Neo Geo Pocket", "ngpc": "Neo Geo Pocket Color",
+    "arcade": "Arcade", "naomi": "Arcade", "naomi2": "Arcade", "atomiswave": "Arcade", "model2": "Arcade",
+    "model3": "Arcade", "amiga": "Amiga", "xbox": "Xbox", "xbox360": "Xbox 360", "scummvm": "ScummVM",
+    "dos": "DOS",
+}
+
+
+def collection_name(slug: str, display_name: str) -> str:
+    return COLLECTION_NAMES.get(slug) or display_name or slug
