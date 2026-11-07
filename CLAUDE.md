@@ -6,6 +6,8 @@ A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gami
 - **Self-update** (`selfupdate.py`, copied from gameyfin-decky): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
   - The panel shows "Update to X", and a toast appears once per new version.
   - Installing calls Decky's `utilities/install_plugin(url, "RomM", version, sha256, 2)`. The name must match `plugin.json`.
+  - **Verified on the Deck (2026-11-06):** a dev build labelled 0.1.9 offered 0.2.0, and pressing Update installed it through Decky's dialog, keeping settings and installs.
+  - **Every release needs a version bump** in `package.json`, or installed copies never see it. `release.yml` refuses tags that don't match.
 - Steps 0 to 5 are done, and every step was verified by the user on the Deck.
 - **Pushing from WSL:** git uses Windows Git Credential Manager (`credential.helper` in the global config).
   - Pushes succeed, but GCM prints `Failed to write item to store. [0x8]` because it can't save the token, so it may ask for a browser sign-in again.
