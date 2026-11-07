@@ -193,7 +193,7 @@ def download_file(client: RommClient, rom_id: int, f: dict, target: str,
 
 def write_m3u(plat_dir: str, game_dir_rel: str, files: list[dict]) -> str | None:
     """For a multi-disc game without its own .m3u, write one. Returns its rel path or None."""
-    if not game_dir_rel or any(f["rel"].lower().endswith(".m3u") for f in files):
+    if not game_dir_rel or any(f["rel"].lower().endswith((".m3u", ".scummvm")) for f in files):
         return None
     discs = [f for f in files if f["rel"].lower().endswith((".cue", ".gdi"))] or \
             [f for f in files if f["rel"].lower().endswith(DISC_EXT[3:])]
@@ -212,6 +212,10 @@ def write_m3u(plat_dir: str, game_dir_rel: str, files: list[dict]) -> str | None
 
 def launch_target(files: list[dict], m3u_rel: str | None) -> str:
     """The file the emulator should open (rel to the platform dir)."""
+    # ScummVM games are a folder with a "<Game>.scummvm" marker (the ES-DE/EmuDeck convention).
+    for f in files:
+        if f["rel"].lower().endswith(".scummvm"):
+            return f["rel"]
     if m3u_rel:
         return m3u_rel
     for ext in DISC_EXT:

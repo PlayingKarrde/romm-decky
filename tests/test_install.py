@@ -11,7 +11,8 @@ sys.path.insert(0, HERE)
 from fake_romm import FakeRomm  # noqa: E402
 from romm import emulators, launchers, library, provision  # noqa: E402
 from romm.client import RommClient, RommError  # noqa: E402
-from romm.installer import PART_SUFFIX, Cancelled, cleanup_parts, delete_owned, install, platform_dir  # noqa: E402
+from romm.installer import (  # noqa: E402
+    PART_SUFFIX, Cancelled, cleanup_parts, delete_owned, install, launch_target, platform_dir, write_m3u)
 
 NO_CANCEL = lambda: False  # noqa: E731
 
@@ -241,12 +242,59 @@ class EmulatorTest(unittest.TestCase):
     def test_argv_and_appimage_exec_bit(self):
         p = self.appimage("pcsx2-Qt.AppImage", exe=False)
         choice = emulators.resolve(self.home, "ps2")
-        self.assertEqual(emulators.argv(self.home, choice, "/r/g.chd"), [p, "-batch", "-fullscreen", "/r/g.chd"])
+        self.assertEqual(emulators.argv(self.home, choice, "/r/g.chd"), [p, "-batch", "-fullscreen", "-nogui", "/r/g.chd"])
         self.assertTrue(os.access(p, os.X_OK))
         self.core("snes9x")
         ra = emulators.argv(self.home, emulators.resolve(self.home, "snes"), "/r/a.smc")
-        self.assertEqual(ra[:4], ["/usr/bin/flatpak", "run", "org.libretro.RetroArch", "-L"])
-        self.assertTrue(ra[4].endswith("snes9x_libretro.so"))
+        self.assertEqual(ra[:5], ["/usr/bin/flatpak", "run", "--filesystem=/r", "org.libretro.RetroArch", "-L"])
+        self.assertTrue(ra[5].endswith("snes9x_libretro.so"))
+
+    def test_flatpak_rom_access(self):
+        self.flatpak("dev.eden_emu.eden")
+        choice = emulators.resolve(self.home, "switch")
+        self.assertEqual(choice["id"], "eden")
+        self.assertEqual(emulators.argv(self.home, choice, "/r/switch/g.nsp"),
+                         ["/usr/bin/flatpak", "run", "--filesystem=/r/switch", "dev.eden_emu.eden",
+                          "-f", "-g", "/r/switch/g.nsp"])
+
+    def test_flatpak_bios_access(self):
+        self.flatpak("net.pcsx2.PCSX2")
+        inis = os.path.join(self.home, ".var/app/net.pcsx2.PCSX2/config/PCSX2/inis")
+        os.makedirs(inis)
+        with open(os.path.join(inis, "PCSX2.ini"), "w") as f:
+            f.write("[Folders]\nBios = /home/deck/Emulation/bios\n")
+        a = emulators.argv(self.home, emulators.resolve(self.home, "ps2"), "/r/ps2/g.chd")
+        self.assertEqual(a[2:4], ["--filesystem=/r/ps2", "--filesystem=/home/deck/Emulation/bios:ro"])
+        # A BIOS folder inside the app's own sandbox needs no grant.
+        with open(os.path.join(inis, "PCSX2.ini"), "w") as f:
+            f.write("[Folders]\nBios = bios\n")
+        a = emulators.argv(self.home, emulators.resolve(self.home, "ps2"), "/r/ps2/g.chd")
+        self.assertEqual(a[2:4], ["--filesystem=/r/ps2", "net.pcsx2.PCSX2"])
+
+    def test_scummvm_launch_target(self):
+        files = [{"rel": "Sky/sky.dsk", "size": 9000}, {"rel": "Sky/Sky.scummvm", "size": 3},
+                 {"rel": "Sky/a.iso", "size": 5}, {"rel": "Sky/b.iso", "size": 5}]
+        self.assertEqual(launch_target(files, None), "Sky/Sky.scummvm")
+        self.assertIsNone(write_m3u(self.home, "Sky", files))
+
+    def test_emudeck_ryujinx_folder(self):
+        d = os.path.join(self.home, "Applications", "publish")
+        os.makedirs(d)
+        open(os.path.join(d, "Ryujinx"), "w").close()
+        choice = emulators.resolve(self.home, "switch")
+        self.assertEqual(choice["id"], "ryujinx")
+        a = emulators.argv(self.home, choice, "/r/switch/g.nsp")
+        self.assertEqual(a, [os.path.join(d, "Ryujinx"), "--fullscreen", "/r/switch/g.nsp"])
+        self.assertTrue(os.access(a[0], os.X_OK))
+
+    def test_mame_and_scummvm_args(self):
+        self.flatpak("org.mamedev.MAME")
+        a = emulators.argv(self.home, {"emulator": "mame"}, "/r/arcade/sf2.zip")
+        self.assertEqual(a[-3:], ["-rompath", "/r/arcade", "sf2"])
+        self.flatpak("org.scummvm.ScummVM")
+        self.assertEqual(emulators.resolve(self.home, "scummvm")["id"], "scummvm")
+        a = emulators.argv(self.home, {"emulator": "scummvm"}, "/r/scummvm/Sky/Sky.scummvm")
+        self.assertEqual(a[-2:], ["--path=/r/scummvm/Sky", "--auto-detect"])
 
     def test_reads_redirected_paths_from_cfg(self):
         with open(os.path.join(self.cfgdir, "retroarch.cfg"), "w") as f:
@@ -283,7 +331,7 @@ class EmulatorTest(unittest.TestCase):
         with open(path) as f:
             body = f.read()
         self.assertEqual(body.count("\n"), 3)
-        self.assertIn("exec /usr/bin/flatpak run org.libretro.RetroArch -L", body)
+        self.assertIn("exec /usr/bin/flatpak run --filesystem=/roms/snes org.libretro.RetroArch -L", body)
         self.assertIn("'/roms/snes/It'\"'\"'s (USA).smc' \"$@\"", body)
         launchers.remove(self.home, 4023)
         self.assertFalse(os.path.exists(path))

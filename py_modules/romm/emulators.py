@@ -35,7 +35,10 @@ class Emulator:
     flatpaks: tuple[str, ...] = ()
     # Case-insensitive file-name prefixes of AppImages in ~/Applications (EmuDeck's location).
     appimages: tuple[str, ...] = ()
-    # Arguments after the executable; "{rom}" is replaced with the ROM path.
+    # Plain executables under ~/Applications, for emulators EmuDeck unpacks into a folder.
+    binaries: tuple[str, ...] = ()
+    # Arguments after the executable. "{rom}" is the ROM path, "{romdir}" its folder,
+    # "{romstem}" its file name without the extension, "{core}" the RetroArch core.
     args: tuple[str, ...] = ("{rom}",)
     prefer_appimage: bool = True
     # Where to read the BIOS folder from (see bios_dir()).
@@ -45,9 +48,9 @@ class Emulator:
 EMULATORS: dict[str, Emulator] = {e.id: e for e in (
     Emulator("retroarch", "RetroArch", flatpaks=(RA_APP,), args=("-L", "{core}", "{rom}"), bios="retroarch"),
     Emulator("duckstation", "DuckStation", flatpaks=("org.duckstation.DuckStation",), appimages=("DuckStation",),
-             args=("-batch", "-fullscreen", "{rom}"), bios="duckstation"),
+             args=("-batch", "-fullscreen", "-nogui", "{rom}"), bios="duckstation"),
     Emulator("pcsx2", "PCSX2", flatpaks=("net.pcsx2.PCSX2",), appimages=("pcsx2-Qt", "pcsx2"),
-             args=("-batch", "-fullscreen", "{rom}"), bios="pcsx2"),
+             args=("-batch", "-fullscreen", "-nogui", "{rom}"), bios="pcsx2"),
     Emulator("dolphin", "Dolphin", flatpaks=("org.DolphinEmu.dolphin-emu",), args=("-b", "-e", "{rom}")),
     Emulator("ppsspp", "PPSSPP", flatpaks=("org.ppsspp.PPSSPP",), appimages=("PPSSPP",), args=("-f", "-g", "{rom}"),
              prefer_appimage=False),
@@ -61,10 +64,21 @@ EMULATORS: dict[str, Emulator] = {e.id: e for e in (
              args=("-full-screen", "-dvd_path", "{rom}"), prefer_appimage=False),
     Emulator("flycast", "Flycast", flatpaks=("org.flycast.Flycast",), appimages=("flycast",)),
     Emulator("supermodel", "Supermodel", flatpaks=("com.supermodel3.Supermodel",)),
-    Emulator("ryujinx", "Ryujinx", flatpaks=("org.ryujinx.Ryujinx",), appimages=("Ryujinx",),
-             args=("--fullscreen", "{rom}")),
-    Emulator("eden", "Eden", appimages=("Eden",), args=("-f", "-g", "{rom}")),
+    # Ryubing is the maintained Ryujinx fork; EmuDeck unpacks its build into ~/Applications/publish.
+    Emulator("ryujinx", "Ryujinx", flatpaks=("io.github.ryubing.Ryujinx", "org.ryujinx.Ryujinx"),
+             appimages=("Ryujinx", "Ryubing"), binaries=("publish/Ryujinx",), args=("--fullscreen", "{rom}")),
+    Emulator("eden", "Eden", flatpaks=("dev.eden_emu.eden",), appimages=("Eden",), args=("-f", "-g", "{rom}")),
+    Emulator("citron", "Citron", appimages=("citron",), args=("-f", "-g", "{rom}")),
     Emulator("yuzu", "yuzu", appimages=("yuzu",), args=("-f", "-g", "{rom}")),
+    Emulator("sudachi", "Sudachi", appimages=("sudachi",), args=("-f", "-g", "{rom}")),
+    Emulator("suyu", "suyu", appimages=("suyu",), args=("-f", "-g", "{rom}")),
+    Emulator("mame", "MAME", flatpaks=("org.mamedev.MAME",), args=("-rompath", "{romdir}", "{romstem}")),
+    Emulator("mgba", "mGBA", flatpaks=("io.mgba.mGBA",), appimages=("mGBA",), args=("-f", "{rom}")),
+    Emulator("rmg", "Rosalie's Mupen GUI", flatpaks=("com.github.Rosalie241.RMG",),
+             args=("--fullscreen", "--nogui", "--quit-after-emulation", "{rom}")),
+    Emulator("ares", "ares", flatpaks=("dev.ares.ares",), args=("--fullscreen", "{rom}")),
+    Emulator("scummvm", "ScummVM", flatpaks=("org.scummvm.ScummVM",),
+             args=("--fullscreen", "--path={romdir}", "--auto-detect")),
 )}
 
 # RomM platform slug -> candidates, best first. "retroarch:<core>" or an emulator id.
@@ -75,17 +89,17 @@ PLATFORMS: dict[str, list[str]] = {
     "fds": _RA("mesen", "nestopia", "fceumm"),
     "snes": _RA("snes9x", "bsnes", "mesen-s"),
     "sfc": _RA("snes9x", "bsnes", "mesen-s"),
-    "n64": _RA("mupen64plus_next", "parallel_n64"),
-    "gb": _RA("gambatte", "sameboy", "mgba"),
-    "gbc": _RA("gambatte", "sameboy", "mgba"),
-    "gba": _RA("mgba", "vba_next", "gpsp"),
+    "n64": _RA("mupen64plus_next", "parallel_n64") + ["rmg", "ares"],
+    "gb": _RA("gambatte", "sameboy", "mgba") + ["mgba"],
+    "gbc": _RA("gambatte", "sameboy", "mgba") + ["mgba"],
+    "gba": _RA("mgba", "vba_next", "gpsp") + ["mgba"],
     "nds": _RA("melondsds", "melonds") + ["melonds"] + _RA("desmume"),
     "3ds": ["azahar", "citra"],
     "n3ds": ["azahar", "citra"],
     "ngc": ["dolphin"],
     "wii": ["dolphin"],
     "wiiu": ["cemu"],
-    "switch": ["ryujinx", "eden", "yuzu"],
+    "switch": ["eden", "ryujinx", "citron", "yuzu", "sudachi", "suyu"],
     "virtualboy": _RA("mednafen_vb"),
     "genesis": _RA("genesis_plus_gx", "picodrive"),
     "sms": _RA("genesis_plus_gx", "picodrive"),
@@ -114,12 +128,22 @@ PLATFORMS: dict[str, list[str]] = {
     "atari2600": _RA("stella", "stella2014"),
     "atari7800": _RA("prosystem"),
     "lynx": _RA("handy", "mednafen_lynx"),
-    "neogeo": _RA("fbneo"),
-    "arcade": _RA("fbneo", "mame2003_plus", "mame"),
+    "neogeo": _RA("fbneo") + ["mame"],
+    "arcade": _RA("fbneo", "mame2003_plus", "mame") + ["mame"],
     "amiga": _RA("puae"),
     "msx": _RA("bluemsx", "fmsx"),
     "colecovision": _RA("bluemsx", "gearcoleco"),
     "pico8": _RA("retro8"),
+    "scummvm": ["scummvm"] + _RA("scummvm"),
+    "jaguar": _RA("virtualjaguar"),
+    "3do": _RA("opera"),
+    "pc-fx": _RA("mednafen_pcfx"),
+    "atari5200": _RA("atari800"),
+    "c64": _RA("vice_x64sc"),
+    "dos": _RA("dosbox_pure"),
+    "pokemon-mini": _RA("pokemini"),
+    "vectrex": _RA("vecx"),
+    "intellivision": _RA("freeintv"),
 }
 
 _CFG_LINE = re.compile(r'^\s*([A-Za-z0-9_]+)\s*=\s*"(.*)"\s*$')
@@ -204,11 +228,19 @@ def _find_appimage(home: str, prefixes: tuple[str, ...]) -> str | None:
     return None
 
 
+def _find_binary(home: str, rels: tuple[str, ...]) -> str | None:
+    for rel in rels:
+        p = os.path.join(home, "Applications", rel)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
 def detect(home: str, emu_id: str) -> list[str] | None:
     """The executable argv prefix for an installed emulator, or None if it isn't installed."""
     e = EMULATORS[emu_id]
     flatpak = next((a for a in e.flatpaks if _flatpak_installed(home, a)), None)
-    appimage = _find_appimage(home, e.appimages) if e.appimages else None
+    appimage = (_find_appimage(home, e.appimages) if e.appimages else None) or _find_binary(home, e.binaries)
     order = [("appimage", appimage), ("flatpak", flatpak)]
     if not e.prefer_appimage:
         order.reverse()
@@ -293,9 +325,28 @@ def argv(home: str, choice: dict, rom_path: str) -> list[str]:
     if prefix[0] != FLATPAK and not os.access(prefix[0], os.X_OK):
         # AppImages lose their exec bit when copied around; EmuDeck's launchers chmod too.
         os.chmod(prefix[0], os.stat(prefix[0]).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    e = EMULATORS[choice["emulator"]]
+    if prefix[0] == FLATPAK:
+        prefix = prefix[:2] + _flatpak_access(home, choice["emulator"], prefix[2], rom_path) + prefix[2:]
     core = core_path(home, choice["core"]) if choice.get("core") else ""
-    args = [a.replace("{rom}", rom_path).replace("{core}", core) for a in EMULATORS[choice["emulator"]].args]
-    return prefix + args
+    romdir = os.path.dirname(rom_path)
+    romstem = os.path.splitext(os.path.basename(rom_path))[0]
+    subs = {"{rom}": rom_path, "{romdir}": romdir, "{romstem}": romstem, "{core}": core}
+    return prefix + [re.sub(r"\{(rom|romdir|romstem|core)\}", lambda m: subs[m.group(0)], a) for a in e.args]
+
+
+def _flatpak_access(home: str, emu_id: str, app: str, rom_path: str) -> list[str]:
+    """--filesystem grants so a sandboxed emulator can reach the ROM and its BIOS folder.
+
+    Several Flathub builds can't see the home folder (Eden, DuckStation, PCSX2) or
+    an SD card (melonDS, Ryujinx, RPCS3). Extra grants are harmless for the rest.
+    The ROM folder is read-write, since some emulators save next to the ROM.
+    """
+    out = [f"--filesystem={os.path.dirname(rom_path)}"]
+    bios = bios_dir(home, emu_id) if EMULATORS[emu_id].bios else None
+    if bios and not bios.startswith(os.path.join(home, ".var", "app", app) + os.sep):
+        out.append(f"--filesystem={bios}:ro")
+    return out
 
 
 # ---- BIOS folders ----------------------------------------------------------------

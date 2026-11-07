@@ -2,7 +2,7 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-07): v0.3.0 adds SteamGridDB artwork.** Earlier releases: v0.2.0 (in-plugin updates), v0.1.0.
+**Status (2026-11-07): v0.3.1 refreshes the emulator table** (see the emulator layer notes). Earlier releases: v0.3.0 (SteamGridDB artwork), v0.2.0 (in-plugin updates), v0.1.0.
 - **Self-update** (`common/selfupdate.py`, from decky-common): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
   - The panel shows "Update to X", and a toast appears once per new version.
   - Installing calls Decky's `utilities/install_plugin(url, "RomM", version, sha256, 2)`. The name must match `plugin.json`.
@@ -70,6 +70,10 @@ Tender (github.com/danielcopper/decky-romm-sync) already exists. The user tried 
   - **Platforms map to candidates:** `PLATFORMS[slug]` is an ordered list of `retroarch:<core>` or standalone emulator ids.
   - **Choosing:** `resolve()` takes the user's override (`settings.platform_overrides[key]`) if it's installed, else the first ready candidate, else the first whose core can be downloaded.
   - **Detection:** Flatpak app dirs (user and system) and `~/Applications/<Prefix>*.AppImage`. EmuDeck's AppImage wins over a Flatpak for DuckStation, PCSX2, Cemu and RPCS3, because that's the build EmuDeck configured.
+  - **Folder installs:** EmuDeck unpacks some emulators into a folder rather than an AppImage (`Emulator.binaries`): Ryujinx is `~/Applications/publish/Ryujinx`. Vita3K (`~/Applications/Vita3K/Vita3K`) isn't mapped, because Vita games need installing in Vita3K first.
+  - **Flatpak sandboxes (checked 2026-11-07 against Flathub):** Eden, DuckStation, PCSX2 and RMG can't see the home folder, and Ryujinx, melonDS and RPCS3 can't see an SD card. So every Flatpak launch adds `--filesystem=<ROM folder>` (read-write, since some emulators save next to the ROM), plus `--filesystem=<BIOS folder>:ro` when the emulator's BIOS folder is outside its own `~/.var/app/<id>`.
+  - **EmuDeck's Eden install downloads nothing** (the code is commented out in `emuDeckEden.sh`). Eden comes from Flathub (`dev.eden_emu.eden`) or an `Eden*.AppImage`. Switch order: Eden, Ryujinx (Ryubing, `io.github.ryubing.Ryujinx`), Citron, yuzu, Sudachi, suyu.
+  - **Not covered, on purpose:** Model 2 and Xbox 360 (only Windows emulators exist), PS4 (shadPS4) and Vita (both need an install step inside the emulator). ScummVM games are folders with a `<Game>.scummvm` marker, which `launch_target` picks.
   - **Core downloads:** a missing RetroArch core comes from `buildbot.libretro.com/nightly/linux/x86_64/latest/<core>_libretro.so.zip`, in the worker (phase `core`) or when the user switches.
   - **BIOS:** each emulator's BIOS folder is read from its own config (`retroarch.cfg` `system_directory`, DuckStation `settings.ini` `[BIOS] SearchDirectory`, PCSX2 `inis/PCSX2.ini` `[Folders] Bios`). On the Deck all three point at `~/Emulation/bios`. RomM firmware for the platform is copied there after the ROM (phase `bios`). Existing names are never overwritten, and BIOS files are never deleted.
   - **Keeping launchers current:** at plugin load, `_refresh_launchers` rewrites any launch script whose resolved command changed. It never downloads cores, so "Automatic" follows newly installed emulators. Changing an override rewrites that platform's scripts, downloading the core if needed.
