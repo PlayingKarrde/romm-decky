@@ -2,7 +2,10 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): v0.1.0 released.** Release page: https://github.com/PlayingKarrde/romm-decky/releases/tag/v0.1.0
+**Status (2026-11-06): v0.2.0 adds in-plugin updates.** Earlier release: v0.1.0.
+- **Self-update** (`selfupdate.py`, copied from gameyfin-decky): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
+  - The panel shows "Update to X", and a toast appears once per new version.
+  - Installing calls Decky's `utilities/install_plugin(url, "RomM", version, sha256, 2)`. The name must match `plugin.json`.
 - Steps 0 to 5 are done, and every step was verified by the user on the Deck.
 - **Pushing from WSL:** git uses Windows Git Credential Manager (`credential.helper` in the global config).
   - Pushes succeed, but GCM prints `Failed to write item to store. [0x8]` because it can't save the token, so it may ask for a browser sign-in again.

@@ -35,6 +35,16 @@ export const setPlatformCollections = callable<[enabled: boolean], Result<Public
   "set_platform_collections",
 );
 export const testConnection = callable<[], Result<ConnectionInfo>>("test_connection");
+
+export type PluginUpdate = {
+  current: string;
+  latest: string;
+  newer: boolean;
+  url: string | null;
+  sha256: string | null;
+  page: string | null;
+};
+export const checkPluginUpdate = callable<[force: boolean], Result<PluginUpdate>>("check_plugin_update");
 export const signOut = callable<[], Result<PublicSettings>>("sign_out");
 export const startPairing = callable<[server_url: string], Result<PairingStatus>>("start_pairing");
 export const getPairingStatus = callable<[], Result<PairingStatus>>("get_pairing_status");

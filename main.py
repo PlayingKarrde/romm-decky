@@ -10,7 +10,7 @@ from typing import Any, Callable
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from romm import emulators, jobs, launchers, library, provision, status
+from romm import emulators, jobs, launchers, library, provision, selfupdate, status
 from romm.client import RommClient, RommError, normalize_base_url
 from romm.images import ImageCache
 from romm.installed import InstalledStore, default_root, install_roots
@@ -68,6 +68,11 @@ class Plugin:
         self.settings = dataclasses.replace(self.settings, steam_platform_collections=bool(enabled))
         self.store.save(self.settings)
         return _ok(self.settings.public())
+
+    async def check_plugin_update(self, force: bool = False) -> dict:
+        """Newer release on GitHub? {current, latest, newer, url, sha256, page}. The plugin
+        isn't on the Decky store, so Decky's own update check never sees it."""
+        return await self._call(lambda: selfupdate.check(decky.DECKY_PLUGIN_VERSION, force=bool(force)))
 
     async def test_connection(self) -> dict:
         res = await self._call(lambda: self._client().test_connection())
