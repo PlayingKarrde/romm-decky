@@ -12,7 +12,8 @@ A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gami
 - **Pushing from WSL:** git uses Windows Git Credential Manager (`credential.helper` in the global config).
   - Pushes succeed, but GCM prints `Failed to write item to store. [0x8]` because it can't save the token, so it may ask for a browser sign-in again.
   - The repo is public, so CI and release status can be read without auth at `api.github.com/repos/PlayingKarrde/romm-decky/actions/runs`.
-- **SteamGridDB art (2026-11-07, unreleased):** an optional key set in the QAM "SteamGridDB artwork" panel (the shared `common/ArtworkPanel.tsx`, typed in; there's no phone page as in gameyfin-decky).
+- **SteamGridDB art (2026-11-07, unreleased):** an optional key set in the QAM "SteamGridDB artwork" panel (the shared `common/ArtworkPanel.tsx`), typed in or sent from a phone.
+  - The phone page is the shared `common/phoneform.py` + `PhoneModal.tsx`, through `start_sgdb_phone`/`get_sgdb_phone_status`/`stop_sgdb_phone`. It's separate from `start_pairing`, which is RomM device auth. Verified on the Deck from another LAN machine.
   - `get_art_plan(rom_id)`: the RomM cover wins the capsule, and SGDB fills wide, hero and logo. Square covers are optional.
   - Matching uses RomM's own `sgdb_id` when it has one (about 25% of the library), then `steam_id`, then an exact title. Unidentified files get no SGDB art.
   - Art is applied on install and re-add, and from "RomM › Refresh artwork" in the library context menu. A reinstall keeps existing art.

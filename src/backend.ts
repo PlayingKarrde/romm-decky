@@ -1,5 +1,6 @@
 import { callable } from "@decky/api";
 import type { ArtPlan } from "./common/artwork";
+import type { PhoneFormStatus } from "./common/PhoneModal";
 
 export type ApiError = { message: string; status: number | null; code: string | null };
 export type Result<T> = { ok: true; data: T } | { ok: false; error: ApiError };
@@ -254,6 +255,11 @@ export const getArtPlan = callable<[rom_id: string], Result<ArtPlan>>("get_art_p
 export const setSgdbKey = callable<[key: string], Result<PublicSettings>>("set_sgdb_key");
 export const clearSgdbKey = callable<[], Result<PublicSettings>>("clear_sgdb_key");
 export const setSgdbSquareCovers = callable<[enabled: boolean], Result<PublicSettings>>("set_sgdb_square_covers");
+/** LAN page where a phone pastes the SteamGridDB key (common/phoneform.py). */
+export type SgdbPhoneStatus = PhoneFormStatus<PublicSettings>;
+export const startSgdbPhone = callable<[], Result<SgdbPhoneStatus>>("start_sgdb_phone");
+export const getSgdbPhoneStatus = callable<[], Result<SgdbPhoneStatus>>("get_sgdb_phone_status");
+export const stopSgdbPhone = callable<[], Result<null>>("stop_sgdb_phone");
 
 export function formatBytes(n: number | null | undefined): string {
   if (n == null) return "";

@@ -14,6 +14,7 @@ import threading
 import time
 
 from .client import RommClient, RommError
+from .common.phoneform import sgdb_section, shell
 
 
 class DevicePairing:
@@ -81,3 +82,14 @@ class DevicePairing:
             "expires_in": max(0, int(self._deadline - time.monotonic())) if self._deadline else None,
             "error": self.error,
         }
+
+
+# ---- SteamGridDB key from a phone ------------------------------------------------
+
+SGDB_PHONE_TITLE = "SteamGridDB key for RomM on your Deck"
+
+
+def sgdb_phone_page(has_key: bool) -> str:
+    """The phone page for the SteamGridDB API key (served by common.phoneform.PhoneForm)."""
+    return shell(SGDB_PHONE_TITLE, f"<h1>{SGDB_PHONE_TITLE}</h1>" + sgdb_section(has_key, optional=False))
+

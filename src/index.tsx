@@ -1,15 +1,26 @@
-import { ButtonItem, PanelSection, PanelSectionRow, SteamSpinner, staticClasses } from "@decky/ui";
+import { ButtonItem, PanelSection, PanelSectionRow, SteamSpinner, showModal, staticClasses } from "@decky/ui";
 import { definePlugin, routerHook, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaGamepad } from "react-icons/fa";
-import { PluginUpdate, PublicSettings, checkPluginUpdate, getSettings } from "./backend";
+import {
+  PluginUpdate,
+  PublicSettings,
+  checkPluginUpdate,
+  getSettings,
+  getSgdbPhoneStatus,
+  startSgdbPhone,
+  stopSgdbPhone,
+} from "./backend";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { DownloadsPanel } from "./components/DownloadsPanel";
 import { InstallLocationPanel } from "./components/InstallLocationPanel";
 import { ArtworkPanel } from "./common/ArtworkPanel";
+import { PhoneModal } from "./common/PhoneModal";
 import { LIBRARY_ROUTE, LibraryPage, openLibrary } from "./components/LibraryPage";
 import { patchContextMenu } from "./contextMenu";
 import { attentionCounts, startPolling, stopPolling, useInstallState } from "./installs";
+
+const sgdbPhoneApi = { start: startSgdbPhone, status: getSgdbPhoneStatus, stop: stopSgdbPhone };
 
 /** Decky's own "Install plugin from URL" flow: it asks for confirmation, then replaces this
  *  plugin with the release zip. The store isn't an option (it rejects LLM-written plugins). */
@@ -124,7 +135,23 @@ function Content() {
       <DownloadsPanel />
       <ConnectionPanel settings={settings} onChange={setSettings} />
       {paired && <InstallLocationPanel />}
-      {paired && <ArtworkPanel title="RomM" settings={settings} onSaved={setSettings} />}
+      {paired && (
+        <ArtworkPanel
+          title="RomM"
+          settings={settings}
+          onSaved={setSettings}
+          phone={(done) =>
+            showModal(
+              <PhoneModal
+                api={sgdbPhoneApi}
+                title="RomM"
+                description="Sign in to SteamGridDB there and paste its API key."
+                onDone={done}
+              />,
+            )
+          }
+        />
+      )}
     </>
   );
 }

@@ -5,6 +5,7 @@ import platform
 import socket
 import subprocess
 import threading
+import urllib.parse
 from typing import Any, Callable
 
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
@@ -12,12 +13,13 @@ import decky
 
 from romm import emulators, jobs, launchers, library, provision, status
 from romm.common import sgdb
+from romm.common.phoneform import PhoneForm
 from romm.common.selfupdate import Updater
 from romm.client import RommClient, RommError, normalize_base_url
 from romm.common.images import ImageCache
 from romm.installed import InstalledStore, default_root, install_roots
 from romm.installer import check_space, delete_owned
-from romm.pairing import DevicePairing
+from romm.pairing import SGDB_PHONE_TITLE, DevicePairing, sgdb_phone_page
 from romm.settings import Settings, SettingsStore
 
 log = decky.logger
@@ -44,6 +46,7 @@ class Plugin:
     jobs_root: str
     _install_lock: threading.Lock
     pairing: DevicePairing | None = None
+    phone: PhoneForm | None = None  # SteamGridDB key from a phone
 
     def _client(self) -> RommClient:
         if not self.settings.configured:
@@ -95,6 +98,43 @@ class Plugin:
         self.settings = dataclasses.replace(self.settings, sgdb_square_covers=bool(enabled))
         self.store.save(self.settings)
         return _ok(self.settings.public())
+
+    def _sgdb_phone_submit(self, fields: dict) -> str:
+        """Runs on the phone form's thread: validate the key, then save it."""
+        key = fields.get("sgdb_key", "")
+        if not key:
+            raise RommError("Paste your SteamGridDB API key")
+        sgdb.SgdbClient(key).validate()
+        self.settings = dataclasses.replace(self.settings, sgdb_key=key)
+        self.store.save(self.settings)
+        log.info("SteamGridDB key saved from phone")
+        return "SteamGridDB key saved."
+
+    async def start_sgdb_phone(self) -> dict:
+        """Serve a LAN page where a phone pastes the SteamGridDB key (SGDB's Steam sign-in
+        needs popups, which Decky's browser blocks)."""
+        def run():
+            if self.phone:
+                self.phone.stop()
+            hint = urllib.parse.urlparse(self.settings.server_url).hostname if self.settings.server_url else None
+            self.phone = PhoneForm(lambda: sgdb_phone_page(bool(self.settings.sgdb_key)), self._sgdb_phone_submit,
+                                   hint_host=hint, closed_title=SGDB_PHONE_TITLE).start()
+            log.info("SteamGridDB phone form listening on %s:%s", self.phone.ip, self.phone.port)
+            return self.phone.status()
+        return await self._call(run)
+
+    async def get_sgdb_phone_status(self) -> dict:
+        if not self.phone:
+            return _ok({"state": "stopped"})
+        st = self.phone.status()
+        if st["state"] == "done":
+            st["settings"] = self.settings.public()
+        return _ok(st)
+
+    async def stop_sgdb_phone(self) -> dict:
+        if self.phone:
+            self.phone.stop()
+        return _ok(None)
 
     async def get_art_plan(self, rom_id: str) -> dict:
         """{capsule, wide, hero, logo} for an installed ROM: one image URL (or null) per Steam slot.
@@ -560,6 +600,8 @@ class Plugin:
     async def _unload(self):
         if self.pairing:
             self.pairing.stop()
+        if self.phone:
+            self.phone.stop()
         log.info("RomM plugin unloading")
 
     async def _uninstall(self):

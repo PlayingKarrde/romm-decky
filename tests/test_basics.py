@@ -100,6 +100,16 @@ class PairingTest(unittest.TestCase):
         self.assertEqual(p.poll()["state"], "expired")
 
 
+class SgdbPhoneTest(unittest.TestCase):
+    def test_page(self):
+        from romm import pairing
+        page = pairing.sgdb_phone_page(False)
+        self.assertIn('name="sgdb_key"', page)
+        self.assertIn("steamgriddb.com/profile/preferences/api", page)
+        self.assertNotIn("Optional.", page)
+        self.assertIn("already saved", pairing.sgdb_phone_page(True))
+
+
 class LibraryTest(unittest.TestCase):
     def test_game_files_drop_placeholders(self):
         r = {"fs_path": "roms/psx", "fs_name": "CC", "files": [
