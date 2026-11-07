@@ -11,6 +11,9 @@ from typing import Any
 # Virtual collection kinds RomM generates from metadata (ids are opaque strings).
 VIRTUAL_KINDS = ("collection", "franchise", "genre", "company", "mode")
 
+# Collection browse groups -> how to list them. "mine" = user + smart collections.
+COLLECTION_GROUPS = ("mine",) + VIRTUAL_KINDS
+
 
 def platform_summary(p: dict) -> dict:
     return {
@@ -25,8 +28,16 @@ def platform_summary(p: dict) -> dict:
 
 
 def platforms_summary(platforms: list[dict]) -> list[dict]:
-    """Only platforms that have ROMs, sorted by name."""
+    """Only platforms that have ROMs, sorted by name.
+
+    RomM can have two platforms with the same display name (e.g. 'Arcade' for the
+    MAME/ and arcade/ folders); those get their folder name appended.
+    """
     out = [platform_summary(p) for p in platforms if p.get("rom_count")]
+    names = [p["name"] for p in out]
+    for p in out:
+        if names.count(p["name"]) > 1 and p["fs_slug"]:
+            p["name"] = f'{p["name"]} ({p["fs_slug"]})'
     out.sort(key=lambda p: (p["name"] or "").lower())
     return out
 
@@ -38,7 +49,7 @@ def collection_summary(c: dict, kind: str) -> dict:
         "kind": kind,
         "name": c.get("name"),
         "rom_count": c.get("rom_count") or 0,
-        "cover": c.get("path_cover_small"),
+        "cover": c.get("path_cover_small") or next(iter(c.get("path_covers_small") or []), None),
         "is_favorite": bool(c.get("is_favorite")),
     }
 
@@ -107,3 +118,17 @@ def rom_detail(r: dict) -> dict[str, Any]:
         "collections": [{"id": c.get("id"), "name": c.get("name")} for c in r.get("user_collections") or []],
     })
     return d
+
+
+def collections_summary(user: list[dict], smart: list[dict]) -> list[dict]:
+    """The user's own collections (Favorites first), then smart ones."""
+    out = [collection_summary(c, "user") for c in user]
+    out.sort(key=lambda c: (not c["is_favorite"], (c["name"] or "").lower()))
+    out += sorted((collection_summary(c, "smart") for c in smart), key=lambda c: (c["name"] or "").lower())
+    return [c for c in out if c["rom_count"]]
+
+
+def virtual_summary(kind: str, items: list[dict]) -> list[dict]:
+    out = [collection_summary(c, "virtual") for c in items if c.get("rom_count")]
+    out.sort(key=lambda c: (c["name"] or "").lower())
+    return out

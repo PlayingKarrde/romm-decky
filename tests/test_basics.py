@@ -116,6 +116,11 @@ class LibraryTest(unittest.TestCase):
                                          {"id": 3, "display_name": "a", "rom_count": 1}])
         self.assertEqual([p["id"] for p in out], [3, 1])
 
+    def test_duplicate_platform_names_get_folder(self):
+        out = library.platforms_summary([{"id": 1, "display_name": "Arcade", "fs_slug": "MAME", "rom_count": 2},
+                                         {"id": 2, "display_name": "Arcade", "fs_slug": "arcade", "rom_count": 1}])
+        self.assertEqual(sorted(p["name"] for p in out), ["Arcade (MAME)", "Arcade (arcade)"])
+
 
 if __name__ == "__main__":
     unittest.main()

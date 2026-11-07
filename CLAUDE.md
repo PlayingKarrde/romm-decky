@@ -2,12 +2,20 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): step 1 in progress.**
+**Status (2026-11-06): step 2 (browsing) done and committed.**
 - **Done:**
-  - Step 0: the API is verified, and the client and `scripts/romm.py` work.
-  - The scaffold builds, deploys to the Deck and loads there.
-  - The QAM panel has the connection form, pairing through RomM device auth (with a QR code), Test connection, Sign out and the platform-collections toggle.
-- **Next:** the user pairs from the Deck UI. Then step 2 (browsing).
+  - Steps 0 and 1. Pairing has been verified on the Deck.
+  - The library page at `/romm` has two tabs:
+    - Platforms: tiles, with duplicate names shown with their folder.
+    - Collections: Mine, Series, Franchises, Genres, Companies and Modes.
+  - Choosing a tile drills into a paged ROM grid with covers and infinite scroll. Search at the top level covers all ROMs; inside a platform or collection it covers just that.
+  - The ROM detail modal shows details only; its Install button is disabled.
+  - Verified with `cdp.py` screenshots, and by the user on the Deck.
+- **B on the library page:** inside a platform or collection it goes up one level, and at the top level it leaves the page.
+  - Once a Focusable has `onCancelButton`, Steam treats B as handled and skips its default back action, so the handler must call `Navigation.NavigateBack()` itself.
+  - Confirmed on the Deck: before that fix, B at the top level did nothing.
+- **Next:** step 3, installing SNES through RetroArch from end to end.
+- The repo has its first commit on `main` and a repo-local git identity (PlayingKarrde, with the GitHub no-reply email). It has no GitHub remote yet.
 - The plan is in `docs/PLAN.md`.
 
 ## Why a separate plugin
