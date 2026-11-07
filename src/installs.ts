@@ -20,7 +20,7 @@ import {
   uninstallRom,
   updateRom,
 } from "./backend";
-import { addToCollection, applyCover, removeShortcut, shortcutExists, upsertShortcut } from "./steam";
+import { addToCollection, applyArtwork, removeShortcut, shortcutExists, upsertShortcut } from "./steam";
 
 type Snapshot = { jobs: JobState[]; installed: InstalledRom[]; status: InstallStatus[] };
 
@@ -217,7 +217,7 @@ export async function finishInstall(job: JobState, manual = false): Promise<void
           : `${f.name} is ready to play`,
     );
     // A reinstall keeps the existing shortcut's artwork (which the user may have customised).
-    if (!hadShortcut) await applyCover(appId, f.cover);
+    if (!hadShortcut) await applyArtwork(appId, { capsule: f.cover });
   } catch (e) {
     console.error("[romm] finishing install failed", e);
     failed.set(job.job_id, (e as Error).message);
@@ -234,7 +234,7 @@ export async function readdToSteam(inst: InstalledRom): Promise<void> {
     if (!r.ok) throw new Error(r.error.message);
     const { appId } = await linkShortcut(r.data);
     toast(`${inst.title} is back in your library`);
-    await applyCover(appId, r.data.cover);
+    await applyArtwork(appId, { capsule: r.data.cover });
   } catch (e) {
     toast(`Couldn't add ${inst.title} to Steam: ${(e as Error).message}`);
   } finally {

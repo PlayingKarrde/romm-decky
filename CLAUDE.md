@@ -3,7 +3,7 @@
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
 **Status (2026-11-06): v0.2.0 adds in-plugin updates.** Earlier release: v0.1.0.
-- **Self-update** (`selfupdate.py`, copied from gameyfin-decky): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
+- **Self-update** (`common/selfupdate.py`, from decky-common): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
   - The panel shows "Update to X", and a toast appears once per new version.
   - Installing calls Decky's `utilities/install_plugin(url, "RomM", version, sha256, 2)`. The name must match `plugin.json`.
   - **Verified on the Deck (2026-11-06):** a dev build labelled 0.1.9 offered 0.2.0, and pressing Update installed it through Decky's dialog, keeping settings and installs.
@@ -22,7 +22,13 @@ A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gami
   - emulators rather than Proton,
   - platform→emulator mapping, BIOS files, multi-disc games,
   - RomM has save/state APIs that will matter later.
-- Merging them would mean a source abstraction that touches every layer. Copy the plumbing instead. Don't build a shared library until both plugins are stable and the duplication actually hurts.
+- Merging them would mean a source abstraction that touches every layer, so the plugins stay separate.
+- **Shared code lives in `../decky-common`** (github.com/PlayingKarrde/decky-common), started 2026-11-06 because SteamGridDB work would otherwise be done twice.
+  - It holds only code that knows nothing about either source: `net` (CA bundle, User-Agent, `PluginError`), `images` (bridge image cache), `sgdb`, `selfupdate`, `src/common/Cover.tsx`, `src/common/artwork.ts` (`applyArtwork`) and `scripts/cdp.py`.
+  - `scripts/sync-common.sh` copies it into `py_modules/romm/common/`, `src/common/` and `scripts/cdp.py`, and records the commit in `.decky-common`. The copies are committed.
+  - **Never edit the copies.** Change decky-common, commit there, then re-sync. CI (`sync-common.sh --check`) fails on drift, and it needs that decky-common commit pushed first.
+  - `RommError` is an alias of `PluginError` (not a subclass), so `except RommError` catches errors from the common modules. The common TS files import `../backend`; their required exports are listed at the top of each file.
+  - Everything else (installer, client, library UI, jobs, worker) stays per-plugin on purpose.
 - `gameyfin-decky` stays Gameyfin-only; its CLAUDE.md says "No RomM code". Don't add RomM code there.
 
 ## Why not Tender
@@ -90,7 +96,7 @@ Tender (github.com/danielcopper/decky-romm-sync) already exists. The user tried 
 ## Steam UI gotchas (verified on the Deck)
 - **B on a page with drill-down:** once a Focusable has `onCancelButton`, Steam treats B as handled and skips its default back action. The handler must call `Navigation.NavigateBack()` itself at the top level. See `LibraryPage`.
 - **`ConfirmModal` doesn't close when `onOK` is async.** The work ran, the dialog stayed open, and a second press errored. In the handlers, only resolve a promise; do the work after the dialog closes. See `confirmUninstall`. `strMiddleButtonText`/`onMiddleButton` add a third button.
-- **After `systemctl restart plugin_loader`,** `DeckyBackend` takes a few seconds to appear. `cdp.py` scripts should wait for it before calling `rm(...)`.
+- **After `systemctl restart plugin_loader`,** `DeckyBackend` takes a few seconds to appear. `cdp.py` scripts should wait for it before calling `rm(...)` (or `call(...)`; both are defined).
 
 ## RomM API (verified 2026-11-06 against the user's server, RomM 5.4.1)
 The schema is saved at `docs/openapi.json`. The client is `py_modules/romm/client.py`, and `scripts/romm.py test|platforms|roms|rom|collections|firmware|fetch` exercises it using `.env` (`ROMM_URL`, and either `ROMM_TOKEN` or `ROMM_USER`/`ROMM_PASS`).

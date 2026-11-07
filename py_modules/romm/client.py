@@ -14,18 +14,22 @@ Basic with username/password, which the dev CLI uses.
 from __future__ import annotations
 
 import base64
-import functools
 import json
-import os
-import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
 from typing import Any
 
+from .common import net
+from .common.net import Image, PluginError, ssl_context, urlopen  # noqa: F401 (re-exported)
+
 USER_AGENT = "romm-decky/0.1"
+net.set_user_agent(USER_AGENT)
 DEFAULT_TIMEOUT = 15.0
+
+# One error type for the whole plugin, shared with the common modules (an alias, so
+# `except RommError` also catches what they raise).
+RommError = PluginError
 
 # Scopes the plugin asks for when pairing. Read-only on the library; devices.*
 # lets us register as a RomM device (and later take "send to device" installs).
@@ -40,39 +44,6 @@ DEVICE_SCOPES = [
     "devices.read",
     "devices.write",
 ]
-
-# Decky's bundled (PyInstaller) Python has no usable CA store, so HTTPS fails with
-# CERTIFICATE_VERIFY_FAILED. Point it at the system bundle that SteamOS ships.
-_CA_BUNDLES = (
-    "/etc/ssl/certs/ca-certificates.crt",
-    "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
-    "/etc/pki/tls/certs/ca-bundle.crt",
-)
-
-
-@functools.lru_cache(maxsize=1)
-def ssl_context() -> ssl.SSLContext:
-    for path in _CA_BUNDLES:
-        if os.path.isfile(path):
-            return ssl.create_default_context(cafile=path)
-    return ssl.create_default_context()
-
-
-def urlopen(req, timeout: float):
-    """urllib.request.urlopen with the system CA bundle. Use for every request."""
-    return urllib.request.urlopen(req, timeout=timeout, context=ssl_context())
-
-
-class RommError(Exception):
-    """API or transport failure, with a message fit to show the user."""
-
-    def __init__(self, message: str, status: int | None = None, code: str | None = None):
-        super().__init__(message)
-        self.status = status
-        self.code = code
-
-    def to_dict(self) -> dict:
-        return {"message": str(self), "status": self.status, "code": self.code}
 
 
 def normalize_base_url(url: str) -> str:
@@ -91,12 +62,6 @@ def normalize_base_url(url: str) -> str:
 def q(segment: Any) -> str:
     """Quote one path segment (file names contain spaces, parens, '#', ...)."""
     return urllib.parse.quote(str(segment), safe="")
-
-
-@dataclass
-class Image:
-    data: bytes
-    content_type: str
 
 
 class RommClient:

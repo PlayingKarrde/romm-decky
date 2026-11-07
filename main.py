@@ -10,15 +10,18 @@ from typing import Any, Callable
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from romm import emulators, jobs, launchers, library, provision, selfupdate, status
+from romm import emulators, jobs, launchers, library, provision, status
+from romm.common import sgdb
+from romm.common.selfupdate import Updater
 from romm.client import RommClient, RommError, normalize_base_url
-from romm.images import ImageCache
+from romm.common.images import ImageCache
 from romm.installed import InstalledStore, default_root, install_roots
 from romm.installer import check_space, delete_owned
 from romm.pairing import DevicePairing
 from romm.settings import Settings, SettingsStore
 
 log = decky.logger
+UPDATER = Updater("PlayingKarrde/romm-decky", "romm-decky-")
 
 
 def _ok(data: Any = None) -> dict:
@@ -72,7 +75,7 @@ class Plugin:
     async def check_plugin_update(self, force: bool = False) -> dict:
         """Newer release on GitHub? {current, latest, newer, url, sha256, page}. The plugin
         isn't on the Decky store, so Decky's own update check never sees it."""
-        return await self._call(lambda: selfupdate.check(decky.DECKY_PLUGIN_VERSION, force=bool(force)))
+        return await self._call(lambda: UPDATER.check(decky.DECKY_PLUGIN_VERSION, force=bool(force)))
 
     async def test_connection(self) -> dict:
         res = await self._call(lambda: self._client().test_connection())
@@ -173,7 +176,7 @@ class Plugin:
 
     async def get_image(self, image_url: str) -> dict:
         """{thumb: dataURL} if cached, else {content_type, size, chunks} for chunked fetch."""
-        return await self._call(lambda: self.images.describe(self._client(), image_url))
+        return await self._call(lambda: self.images.describe(self._client().fetch_image, image_url))
 
     async def get_image_chunk(self, image_url: str, index: int) -> dict:
         return await self._call(lambda: self.images.chunk(image_url, index))
@@ -183,7 +186,14 @@ class Plugin:
 
     async def get_artwork(self, image_url: str) -> dict:
         """Full-size original as {content_type, size, chunks}; fetch slices with get_image_chunk."""
-        return await self._call(lambda: self.images.describe_original(self._client(), image_url))
+        return await self._call(lambda: self.images.describe_original(self._client().fetch_image, image_url))
+
+    async def drop_artwork(self, image_url: str) -> dict:
+        """Called once Steam has stored an image. RomM covers stay cached for the grid;
+        SteamGridDB originals (several MB each) are deleted."""
+        if not sgdb.is_sgdb_image_url(image_url):
+            return _ok(None)
+        return await self._call(lambda: self.images.drop_original(image_url))
 
     # ---- install -----------------------------------------------------------
 
@@ -484,7 +494,7 @@ class Plugin:
     async def _main(self):
         self.store = SettingsStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.settings = self.store.load()
-        self.images = ImageCache(decky.DECKY_PLUGIN_RUNTIME_DIR)
+        self.images = ImageCache(decky.DECKY_PLUGIN_RUNTIME_DIR, ignore_query=True)
         self.installed = InstalledStore(decky.DECKY_PLUGIN_SETTINGS_DIR)
         self.jobs_root = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "jobs")
         self._install_lock = threading.Lock()

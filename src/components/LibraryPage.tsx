@@ -13,7 +13,7 @@ import {
   listRoms,
 } from "../backend";
 import { activeJobFor, healthOf, installedFor, statusFor, useInstallState } from "../installs";
-import { Cover } from "./Cover";
+import { Cover } from "../common/Cover";
 import { RomModal } from "./RomModal";
 
 export const LIBRARY_ROUTE = "/romm";

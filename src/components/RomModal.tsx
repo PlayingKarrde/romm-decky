@@ -15,7 +15,7 @@ import {
   uninstall,
   useInstallState,
 } from "../installs";
-import { Cover } from "./Cover";
+import { Cover } from "../common/Cover";
 
 type Props = { rom: RomSummary; closeModal?: () => void };
 

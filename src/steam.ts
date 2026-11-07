@@ -1,9 +1,5 @@
 // Thin wrappers over SteamClient.Apps.* and Steam's collectionStore (both undocumented).
 // Keep every Steam call in this file. Verified on the Deck with scripts/cdp.py.
-import { getArtwork, getImageChunk } from "./backend";
-
-const ASSET = { capsule: 0, hero: 1, logo: 2, header: 3, icon: 4 } as const;
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function appStore(): any {
@@ -110,46 +106,5 @@ export async function addToCollection(appId: number, name: string): Promise<void
 
 // ---- artwork ---------------------------------------------------------------
 
-async function fetchOriginal(url: string): Promise<string | null> {
-  const info = await getArtwork(url);
-  if (!info.ok) return null;
-  const parts: string[] = [];
-  for (let i = 0; i < info.data.chunks; i++) {
-    const c = await getImageChunk(url, i);
-    if (!c.ok) return null;
-    parts.push(c.data);
-  }
-  return `data:${info.data.content_type};base64,${parts.join("")}`;
-}
-
-/** Re-encode via canvas so Steam always gets PNG (covers webp etc.). Returns bare base64. */
-async function toPngBase64(dataUrl: string): Promise<string> {
-  if (dataUrl.startsWith("data:image/png;")) return dataUrl.slice(dataUrl.indexOf(",") + 1);
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image();
-    i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error("decode failed"));
-    i.src = dataUrl;
-  });
-  const c = document.createElement("canvas");
-  c.width = img.naturalWidth;
-  c.height = img.naturalHeight;
-  c.getContext("2d")!.drawImage(img, 0, 0);
-  const out = c.toDataURL("image/png");
-  return out.slice(out.indexOf(",") + 1);
-}
-
-/** Best effort: the RomM cover becomes the portrait capsule. Failures are logged, never thrown. */
-export async function applyCover(appId: number, url: string | null | undefined): Promise<void> {
-  if (!url) return;
-  try {
-    const src = await fetchOriginal(url);
-    if (!src) return;
-    const b64 = await toPngBase64(src);
-    await SteamClient.Apps.ClearCustomArtworkForApp(appId, ASSET.capsule as any).catch(() => undefined);
-    await sleep(300); // Clear resolves before it's actually cleared
-    await SteamClient.Apps.SetCustomArtworkForApp(appId, b64, "png", ASSET.capsule as any);
-  } catch (e) {
-    console.warn("[romm] artwork failed", url, e);
-  }
-}
+// Custom artwork lives in decky-common (shared with gameyfin-decky).
+export { applyArtwork } from "./common/artwork";

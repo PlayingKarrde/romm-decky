@@ -7,7 +7,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "py_modules"))
 
-from romm import library, selfupdate  # noqa: E402
+from romm import library  # noqa: E402
 from romm.client import RommClient, RommError, normalize_base_url  # noqa: E402
 from romm.pairing import DevicePairing  # noqa: E402
 from romm.settings import SettingsStore  # noqa: E402
@@ -127,23 +127,6 @@ class LibraryTest(unittest.TestCase):
         out = library.platforms_summary([{"id": 1, "display_name": "Arcade", "fs_slug": "MAME", "rom_count": 2},
                                          {"id": 2, "display_name": "Arcade", "fs_slug": "arcade", "rom_count": 1}])
         self.assertEqual(sorted(p["name"] for p in out), ["Arcade (MAME)", "Arcade (arcade)"])
-
-
-class SelfUpdateTest(unittest.TestCase):
-    def test_versions(self):
-        self.assertTrue(selfupdate.is_newer("0.2.0", "0.1.0"))
-        self.assertTrue(selfupdate.is_newer("v0.10", "0.9.9"))
-        self.assertFalse(selfupdate.is_newer("0.1.0", "0.1"))
-        self.assertFalse(selfupdate.is_newer("0.2.0-beta", "0.1.0"))  # unparsable: never nag
-
-    def test_check_reads_release(self):
-        release = {"tag_name": "v0.2.0", "html_url": "https://example/rel",
-                   "assets": [{"name": "romm-decky-0.2.0.zip", "browser_download_url": "https://example/z.zip",
-                               "digest": "sha256:abc"}]}
-        r = selfupdate.check("0.1.0", force=True, fetch=lambda: release)
-        self.assertEqual((r["newer"], r["latest"], r["url"], r["sha256"]), (True, "0.2.0", "https://example/z.zip", "abc"))
-        release["assets"] = [{"name": "other.zip", "browser_download_url": "x"}]
-        self.assertFalse(selfupdate.check("0.1.0", force=True, fetch=lambda: release)["newer"])
 
 
 if __name__ == "__main__":

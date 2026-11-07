@@ -241,6 +241,7 @@ export const forgetInstalled = callable<[rom_id: string], Result<null>>("forget_
 export const getArtwork = callable<[image_url: string], Result<{ content_type: string; size: number; chunks: number }>>(
   "get_artwork",
 );
+export const dropArtwork = callable<[image_url: string], Result<null>>("drop_artwork");
 
 export function formatBytes(n: number | null | undefined): string {
   if (n == null) return "";
