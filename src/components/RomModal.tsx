@@ -1,7 +1,20 @@
 import { ConfirmModal, DialogButton, Focusable, ModalRoot, Navigation, SteamSpinner, showModal } from "@decky/ui";
 import { ReactElement, useEffect, useState } from "react";
 import { EmulatorInfo, InstalledRom, RomDetail, RomSummary, formatBytes, getEmulator, getRom } from "../backend";
-import { activeJobFor, appIdOf, install, installedFor, uninstall, useInstallState } from "../installs";
+import {
+  activeJobFor,
+  appIdOf,
+  forget,
+  healthOf,
+  install,
+  installedFor,
+  readdToSteam,
+  refreshStatus,
+  startUpdate,
+  statusFor,
+  uninstall,
+  useInstallState,
+} from "../installs";
 import { Cover } from "./Cover";
 
 type Props = { rom: RomSummary; closeModal?: () => void };
@@ -60,7 +73,11 @@ export function RomModal({ rom, closeModal }: Props) {
     getEmulator(rom.platform_slug, rom.platform_fs_slug).then((r) =>
       setEmu(r.ok ? { ok: true, data: r.data } : { ok: false, message: r.error.message }),
     );
+    if (inst) void refreshStatus(); // fresh health/update info for the game being looked at
   }, [rom.id]);
+
+  const st = inst ? statusFor(snap, rom.id) : undefined;
+  const health = inst ? healthOf(inst, st) : "ok";
 
   const files = detail?.files ?? [];
   const discs = files.length > 1 ? `${files.length} files` : null;
@@ -75,15 +92,37 @@ export function RomModal({ rom, closeModal }: Props) {
     const pct = job.total ? ` ${Math.floor((100 * job.done) / job.total)}%` : "";
     actions = [
       <DialogButton key="busy" disabled style={wide}>
-        {job.phase === "done" ? "Adding to Steam…" : `Installing…${pct}`}
+        {job.phase === "done" ? "Adding to Steam…" : `${job.kind === "update" ? "Updating" : "Installing"}…${pct}`}
+      </DialogButton>,
+    ];
+  } else if (inst && health === "files_missing") {
+    actions = [
+      <DialogButton key="reinstall" style={wide} disabled={st?.server_missing} onClick={() => void install(rom.id, rom.name)}>
+        Reinstall
+      </DialogButton>,
+      <DialogButton key="forget" style={wide} onClick={() => void forget(inst).then(() => closeModal?.())}>
+        Remove from list
       </DialogButton>,
     ];
   } else if (inst) {
-    actions = [
+    actions = [];
+    if (health === "shortcut_missing")
+      actions.push(
+        <DialogButton key="readd" style={wide} onClick={() => void readdToSteam(inst)}>
+          Re-add to Steam
+        </DialogButton>,
+      );
+    if (st?.update_available)
+      actions.push(
+        <DialogButton key="update" style={wide} onClick={() => void startUpdate(inst)}>
+          Update
+        </DialogButton>,
+      );
+    actions.push(
       <DialogButton key="uninstall" style={wide} onClick={() => void confirmUninstall(inst, closeModal)}>
         Uninstall
       </DialogButton>,
-    ];
+    );
   } else {
     actions = [
       <DialogButton
@@ -109,6 +148,18 @@ export function RomModal({ rom, closeModal }: Props) {
         ? `Runs with ${emu.data.name}${emu.data.status === "core_missing" ? " (the core downloads on install)" : ""}`
         : emu.message;
 
+  const notice = !inst
+    ? null
+    : health === "files_missing"
+      ? { text: `Its files are missing or changed in ${inst.platform_dir}. Reinstall, or remove it from the list.`, color: "#ffb84d" }
+      : health === "shortcut_missing"
+        ? { text: "Its Steam shortcut was removed. The ROM files are still installed.", color: "#ffb84d" }
+        : st?.update_available
+          ? { text: "RomM has a different version of this ROM.", color: "#1a9fff" }
+          : st?.server_missing
+            ? { text: "This ROM is no longer on the RomM server. The installed copy still works.", color: "#8b929a" }
+            : null;
+
   return (
     <ModalRoot closeModal={closeModal}>
       <div style={{ display: "flex", flexDirection: "column", gap: GAP }}>
@@ -123,6 +174,9 @@ export function RomModal({ rom, closeModal }: Props) {
               <div style={{ fontSize: "13px", color: inst ? "#59bf40" : emu?.ok ? "#b8bcbf" : "#ffb84d" }}>
                 {emuLine}
               </div>
+            )}
+            {notice && (
+              <div style={{ fontSize: "13px", color: notice.color, wordBreak: "break-word" }}>{notice.text}</div>
             )}
             {detail?.playlist_for && (
               <div style={{ fontSize: "13px", color: "#ffb84d" }}>

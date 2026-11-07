@@ -89,6 +89,33 @@ class InstallTest(unittest.TestCase):
         with open(path, "rb") as f:
             self.assertEqual(f.read(), b"something else")
 
+    def test_update_may_replace_recorded_files_only(self):
+        os.makedirs(os.path.join(self.root, "snes"))
+        path = os.path.join(self.root, "snes", "ActRaiser.smc")
+        with open(path, "wb") as f:
+            f.write(b"old version")
+        res = install(self.client, self.rom(1), self.root, "snes", lambda *a: None, NO_CANCEL,
+                      replace={"ActRaiser.smc"})
+        self.assertTrue(res["files"][0]["owned"])
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), self.fake.roms[1]["content"][100])
+
+    def test_status(self):
+        from romm import status
+        res = install(self.client, self.rom(1), self.root, "snes", lambda *a: None, NO_CANCEL)
+        rec = {**res, "rom_id": "1"}
+        get = lambda rid: self.rom(rid)  # noqa: E731
+        st = status.check_one(get, rec)
+        self.assertEqual(st["files"], "ok")
+        self.assertIn("baseline", st)  # no server_files yet: adopt the current state
+        rec["server_files"] = st["baseline"]
+        self.assertFalse(status.check_one(get, rec)["update_available"])
+        self.fake.roms[1]["rom"]["files"][0]["md5_hash"] = "f" * 32
+        self.assertTrue(status.check_one(get, rec)["update_available"])
+        os.remove(os.path.join(self.root, "snes", "ActRaiser.smc"))
+        self.assertEqual(status.check_one(None, rec)["files"], "missing")
+        self.assertTrue(status.check_one(lambda rid: self.rom(999), {**rec, "rom_id": "999"})["server_missing"])
+
     def test_resumes_partial_download(self):
         data = self.fake.roms[1]["content"][100]
         os.makedirs(os.path.join(self.root, "snes"))

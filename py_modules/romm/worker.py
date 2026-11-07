@@ -14,7 +14,7 @@ import sys
 import time
 import traceback
 
-from . import jobs, library, provision
+from . import jobs, library, provision, status
 from .client import RommClient, RommError
 from .installer import Cancelled, cleanup_parts, install, platform_dir
 
@@ -81,7 +81,9 @@ def run(job_dir: str) -> int:
         if spec.get("core"):
             rep.update(phase="core", done=0, total=None)
             provision.download_core(spec["home"], spec["core"], cancelled)
-        res = install(client, rom, spec["root"], rom["platform_fs_slug"], rep.progress, cancelled)
+        res = install(client, rom, spec["root"], rom["platform_fs_slug"], rep.progress, cancelled,
+                      replace=frozenset(spec.get("replace") or ()))
+        res["server_files"] = status.server_signature(rom)
         if spec.get("bios_dir"):
             rep.update(phase="bios", speed=0)
             try:

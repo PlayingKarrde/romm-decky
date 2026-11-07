@@ -128,7 +128,7 @@ export type JobState = {
   speed?: number;
   error?: string;
   error_code?: string;
-  kind?: "install";
+  kind?: "install" | "update";
 };
 export const ACTIVE_PHASES: JobPhase[] = ["queued", "starting", "core", "checking", "downloading", "finalizing", "bios"];
 
@@ -153,9 +153,7 @@ export type InstalledRom = {
   installed_at: number;
 };
 
-export type FinalizeInfo = {
-  bios_added: string[];
-  bios_error: string | null;
+export type ShortcutInfo = {
   rom_id: string;
   name: string;
   exe: string;
@@ -163,6 +161,12 @@ export type FinalizeInfo = {
   cover: string | null;
   collection: string | null;
   appid: number | null;
+  emulator: string;
+};
+export type FinalizeInfo = ShortcutInfo & {
+  kind: "install" | "update";
+  bios_added: string[];
+  bios_error: string | null;
 };
 
 /** A way to run a platform. status: ready, core_missing (RetroArch downloads it), not_installed. */
@@ -211,6 +215,19 @@ export const getInstalled = callable<[], Result<InstalledRom[]>>("get_installed"
 export const uninstallRom = callable<[rom_id: string, delete_existing: boolean], Result<{ removed: number; kept: number }>>(
   "uninstall_rom",
 );
+/** From get_install_status: local file health plus server-side changes. */
+export type InstallStatus = {
+  rom_id: string;
+  files: "ok" | "missing";
+  update_available: boolean;
+  server_missing: boolean;
+  server_size: number | null;
+  error: string | null;
+};
+export const getInstallStatus = callable<[], Result<InstallStatus[]>>("get_install_status");
+export const updateRom = callable<[rom_id: string], Result<{ job_id: string }>>("update_rom");
+export const readdInfo = callable<[rom_id: string], Result<ShortcutInfo>>("readd_info");
+export const forgetInstalled = callable<[rom_id: string], Result<null>>("forget_installed");
 export const getArtwork = callable<[image_url: string], Result<{ content_type: string; size: number; chunks: number }>>(
   "get_artwork",
 );

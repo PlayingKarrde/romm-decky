@@ -10,7 +10,7 @@ from typing import Any, Callable
 # decky is injected by Decky Loader at runtime; decky.pyi provides type hints.
 import decky
 
-from romm import emulators, jobs, launchers, library, provision
+from romm import emulators, jobs, launchers, library, provision, status
 from romm.client import RommClient, RommError, normalize_base_url
 from romm.images import ImageCache
 from romm.installed import InstalledStore, default_root, install_roots
@@ -299,34 +299,49 @@ class Plugin:
         return await self._call(run)
 
     async def start_install(self, rom_id: int) -> dict:
+        return await self._call(lambda: self._launch_install(int(rom_id)))
+
+    async def update_rom(self, rom_id: str) -> dict:
+        """Re-download a ROM whose files changed on the server, into the same folder.
+        Files the install recorded may be overwritten; the shortcut is kept."""
         def run():
-            rom = library.rom_detail(self._client().get_rom(int(rom_id)))
-            if rom.get("playlist_for") is not None:
-                other = ", ".join(s["name"] for s in rom["playlist_for"]) or "the game it belongs to"
-                raise RommError(f"This is only a disc playlist. Install {other} instead.", code="playlist_only")
-            choice = self._resolve(rom["platform_slug"], rom["platform_fs_slug"])  # fails early if none
-            root = default_root(self._home(), self.settings.install_root)
-            os.makedirs(root, exist_ok=True)
-            total = sum(f["size"] for f in rom["files"])
-            # Rough check here (adopted files would need less); the worker checks exactly.
-            if not self.installed.get(rom_id):
-                check_space(root, total)
-            with self._install_lock:
-                active = [j for j in jobs.list_jobs(self.jobs_root)
-                          if str(j.get("rom_id")) == str(rom_id) and j.get("phase") not in jobs.TERMINAL]
-                if active:
-                    raise RommError("This ROM is already being installed", code="busy")
-                job_dir = jobs.create_job(self.jobs_root, {
-                    "rom_id": str(rom_id), "title": rom["name"], "root": root, "total_bytes": total,
-                    "server_url": self.settings.server_url, "settings_path": self.store.path,
-                    "home": self._home(),
-                    "core": choice.get("core") if choice["status"] == "core_missing" else None,
-                    "bios_dir": emulators.bios_dir(self._home(), choice["emulator"]),
-                })
-            how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
-            log.info("Install %s (%s) -> %s via %s", rom_id, rom["name"], root, how)
-            return {"job_id": os.path.basename(job_dir)}
+            rec = self.installed.get(rom_id)
+            if not rec:
+                raise RommError("This ROM isn't installed", code="not_found")
+            return self._launch_install(int(rom_id), update=rec)
         return await self._call(run)
+
+    def _launch_install(self, rom_id: int, update: dict | None = None) -> dict:
+        rom = library.rom_detail(self._client().get_rom(int(rom_id)))
+        if rom.get("playlist_for") is not None:
+            other = ", ".join(s["name"] for s in rom["playlist_for"]) or "the game it belongs to"
+            raise RommError(f"This is only a disc playlist. Install {other} instead.", code="playlist_only")
+        choice = self._resolve(rom["platform_slug"], rom["platform_fs_slug"])  # fails early if none
+        # An update stays where the game is; a (re)install goes to the current root.
+        root = (os.path.dirname(update["platform_dir"].rstrip("/")) if update
+                else default_root(self._home(), self.settings.install_root))
+        os.makedirs(root, exist_ok=True)
+        total = sum(f["size"] for f in rom["files"])
+        # Rough check here (adopted files would need less); the worker checks exactly.
+        if not self.installed.get(rom_id):
+            check_space(root, total)
+        with self._install_lock:
+            active = [j for j in jobs.list_jobs(self.jobs_root)
+                      if str(j.get("rom_id")) == str(rom_id) and j.get("phase") not in jobs.TERMINAL]
+            if active:
+                raise RommError("This ROM is already being installed", code="busy")
+            job_dir = jobs.create_job(self.jobs_root, {
+                "rom_id": str(rom_id), "title": rom["name"], "root": root, "total_bytes": total,
+                "server_url": self.settings.server_url, "settings_path": self.store.path,
+                "home": self._home(),
+                "core": choice.get("core") if choice["status"] == "core_missing" else None,
+                "bios_dir": emulators.bios_dir(self._home(), choice["emulator"]),
+                "kind": "update" if update else "install",
+                "replace": [f["rel"] for f in (update or {}).get("files") or []],
+            })
+        how = jobs.launch_worker(job_dir, os.path.join(decky.DECKY_PLUGIN_DIR, "py_modules"))
+        log.info("%s %s (%s) -> %s via %s", "Update" if update else "Install", rom_id, rom["name"], root, how)
+        return {"job_id": os.path.basename(job_dir)}
 
     async def get_jobs(self) -> dict:
         def run():
@@ -361,31 +376,80 @@ class Plugin:
                 raise RommError("That install hasn't finished", code="not_ready")
             res, rom_id = st["result"], st["rom_id"]
             rom = res["rom"]
-            emu = self._resolve(rom["platform_slug"], rom["platform_fs_slug"])
-            if emu.get("core") and emu["status"] == "core_missing":
-                provision.download_core(self._home(), emu["core"])  # e.g. the override changed mid-install
-            target = os.path.join(res["platform_dir"], res["launch_target"])
-            launchers.write(self._home(), rom_id, rom["name"], emulators.argv(self._home(), emu, target))
-            exe = launchers.script_path(self._home(), rom_id)
             prev = self.installed.get(rom_id) or {}
-            coll = library.collection_name(rom["platform_slug"], rom["platform_name"])
+            # A file we downloaded earlier and that is unchanged now looks "adopted" to the
+            # worker; it's still ours to delete. Same for the game folder.
+            prev_owned = {f["rel"] for f in prev.get("files") or [] if f.get("owned")}
+            for f in res["files"]:
+                f["owned"] = f["owned"] or f["rel"] in prev_owned
+            res["game_dir_owned"] = res["game_dir_owned"] or bool(prev.get("game_dir_owned"))
+            if st.get("kind") == "update" and prev:
+                # Owned files the server no longer has (e.g. a renamed disc) go away.
+                keep = {f["rel"] for f in res["files"]}
+                gone = [f for f in prev.get("files") or [] if f.get("owned") and f["rel"] not in keep]
+                if gone:
+                    delete_owned({**prev, "files": gone, "game_dir_owned": False})
             self.installed.put(rom_id, {
                 "title": rom["name"], "platform_id": rom["platform_id"], "platform_slug": rom["platform_slug"],
                 "platform_fs_slug": rom["platform_fs_slug"], "platform_name": rom["platform_name"],
                 "cover": rom["cover"], "platform_dir": res["platform_dir"], "game_dir_rel": res["game_dir_rel"],
                 "game_dir_owned": res["game_dir_owned"], "files": res["files"],
-                "launch_target": res["launch_target"], "size": res["size"], "emulator": emu["name"],
-                "launcher": exe,
+                "launch_target": res["launch_target"], "size": res["size"],
+                "cover_large": rom.get("cover_large"), "server_files": res.get("server_files"),
             })
-            log.info("Finalized %s (%s): %s via %s; bios %s", rom_id, rom["name"], target, emu["name"],
+            info = self._shortcut_info(rom_id)
+            log.info("Finalized %s (%s) via %s; bios %s", rom_id, rom["name"], info["emulator"],
                      res.get("bios_error") or res.get("bios"))
-            return {
-                "bios_added": (res.get("bios") or {}).get("added", []), "bios_error": res.get("bios_error"),
-                "rom_id": str(rom_id), "name": rom["name"], "exe": exe, "start_dir": os.path.dirname(exe),
-                "cover": rom.get("cover_large") or rom.get("cover"),
-                "collection": coll if self.settings.steam_platform_collections else None,
-                "appid": prev.get("appid"),
-            }
+            return {**info, "kind": st.get("kind", "install"),
+                    "bios_added": (res.get("bios") or {}).get("added", []), "bios_error": res.get("bios_error")}
+        return await self._call(run)
+
+    def _shortcut_info(self, rom_id) -> dict:
+        """Write the launch script for an install record; return what the Steam shortcut needs."""
+        rec = self.installed.get(rom_id)
+        if not rec:
+            raise RommError("This ROM isn't installed", code="not_found")
+        emu = self._resolve(rec["platform_slug"], rec["platform_fs_slug"])
+        if emu.get("core") and emu["status"] == "core_missing":
+            provision.download_core(self._home(), emu["core"])
+        target = os.path.join(rec["platform_dir"], rec["launch_target"])
+        launchers.write(self._home(), rom_id, rec["title"], emulators.argv(self._home(), emu, target))
+        exe = launchers.script_path(self._home(), rom_id)
+        self.installed.put(rom_id, {"emulator": emu["name"], "launcher": exe})
+        coll = library.collection_name(rec["platform_slug"], rec["platform_name"])
+        return {
+            "rom_id": str(rom_id), "name": rec["title"], "exe": exe, "start_dir": os.path.dirname(exe),
+            "cover": rec.get("cover_large") or rec.get("cover"), "emulator": emu["name"],
+            "collection": coll if self.settings.steam_platform_collections else None,
+            "appid": rec.get("appid"),
+        }
+
+    async def readd_info(self, rom_id: str) -> dict:
+        """For "Re-add to Steam": rewrite the launch script and return the shortcut info."""
+        return await self._call(lambda: self._shortcut_info(rom_id))
+
+    async def forget_installed(self, rom_id: str) -> dict:
+        """Drop the record (and launch script) but leave files alone: for missing or moved files."""
+        def run():
+            rec = self.installed.remove(rom_id)
+            launchers.remove(self._home(), rom_id)
+            log.info("Forgot install record %s (%s)", rom_id, (rec or {}).get("title"))
+        return await self._call(run)
+
+    async def get_install_status(self) -> dict:
+        """[{rom_id, files, update_available, server_missing, server_size, error}] for every install."""
+        def run():
+            records = list(self.installed.load().values())
+            try:
+                client = self._client()
+                get_rom = lambda rid: library.rom_detail(client.get_rom(rid))  # noqa: E731
+            except RommError:
+                get_rom = None  # not paired: local file state only
+            out = status.check_all(get_rom, records)
+            for st in out:
+                if "baseline" in st:
+                    self.installed.put(st["rom_id"], {"server_files": st.pop("baseline")})
+            return out
         return await self._call(run)
 
     async def set_installed_appid(self, rom_id: str, appid: int, collection: str | None = None) -> dict:

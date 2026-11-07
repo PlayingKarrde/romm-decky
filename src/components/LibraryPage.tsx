@@ -12,7 +12,7 @@ import {
   listPlatforms,
   listRoms,
 } from "../backend";
-import { activeJobFor, installedFor, useInstallState } from "../installs";
+import { activeJobFor, healthOf, installedFor, statusFor, useInstallState } from "../installs";
 import { Cover } from "./Cover";
 import { RomModal } from "./RomModal";
 
@@ -81,7 +81,11 @@ function RomCard({ rom, showPlatform }: { rom: RomSummary; showPlatform: boolean
   const badge = job
     ? { text: job.total ? `${Math.floor((100 * job.done) / job.total)}%` : "Installing", color: "#1a9fff" }
     : inst
-      ? { text: "Installed", color: "#59bf40" }
+      ? healthOf(inst, statusFor(snap, rom.id)) !== "ok"
+        ? { text: "Needs attention", color: "#ffb84d" }
+        : statusFor(snap, rom.id)?.update_available
+          ? { text: "Update", color: "#1a9fff" }
+          : { text: "Installed", color: "#59bf40" }
       : null;
   const open = () => showModal(<RomModal rom={rom} />);
   return (

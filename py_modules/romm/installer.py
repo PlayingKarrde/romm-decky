@@ -222,8 +222,13 @@ def launch_target(files: list[dict], m3u_rel: str | None) -> str:
 
 
 def install(client: RommClient, rom: dict, root: str, platform_fs_slug: str,
-            progress: Callable[[str, int, int | None], None], cancelled: Callable[[], bool]) -> dict:
-    """Download (or adopt) every file of a ROM. Returns the install record fields."""
+            progress: Callable[[str, int, int | None], None], cancelled: Callable[[], bool],
+            replace: set[str] | frozenset[str] = frozenset()) -> dict:
+    """Download (or adopt) every file of a ROM. Returns the install record fields.
+
+    replace: rel paths this install may overwrite when they differ (an update of
+    files the previous install recorded). Anything else that differs is a conflict.
+    """
     p = plan(rom)
     plat = platform_dir(root, platform_fs_slug)
     total = sum(f["size"] for f in p["files"])
@@ -236,6 +241,8 @@ def install(client: RommClient, rom: dict, root: str, platform_fs_slug: str,
         same = existing_matches(target, f, cancelled)
         if same is True:
             result.append({"rel": f["rel"], "size": f["size"], "owned": False})
+        elif same is False and f["rel"] in replace:
+            todo.append((f, target))
         elif same is False:
             raise RommError(f"A different file already exists at {target}. Move it away to install this ROM.",
                             code="conflict")

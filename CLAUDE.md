@@ -2,14 +2,14 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-06): step 4 (emulator layer) done and committed.**
-- **Done:** steps 0 to 3.
-- **Step 4, verified with `cdp.py`:**
-  - Strider installed for DuckStation (adopting the existing file), Heavenly Guardian for PCSX2 (35 PS2 BIOS files added from RomM), and Animal Crossing for Dolphin.
-  - A core downloads from the buildbot into a temporary home.
-  - The playlist-only ROM was blocked.
-- **Verified by the user:** the three games launch (DuckStation, PCSX2, Dolphin), and switching emulators in the Emulators dialog works.
-- **Next:** step 5 (the context-menu Uninstall, status and drift checks, launching more standalone emulators), then the release.
+**Status (2026-11-06): step 5 done; release prep in progress (not committed yet).**
+- **Done:** steps 0 to 5. The user verified the context menu, Update, Re-add and Reinstall on the Deck.
+- **Context menu:** the items sit under a **RomM ›** submenu (decky-ui `MenuGroup`, the user's request), falling back to flat "… (RomM)" items if `MenuGroup` isn't found. The submenu is deployed but not yet seen by the user.
+- **Release prep:**
+  - The README is written.
+  - `scripts/package.sh` builds `out/romm-decky-0.1.0.zip`: 20 files, with no `.env`, tests or docs.
+  - CI (`ci.yml`) and release (`release.yml`) are in place.
+- **Next:** create the GitHub repo (`gh` isn't installed on the PC), push `main`, and only then push the `v0.1.0` tag, so the release workflow runs.
 - The repo has its first commit on `main` and a repo-local git identity (PlayingKarrde, with the GitHub no-reply email). It has no GitHub remote yet.
 - The plan is in `docs/PLAN.md`.
 
@@ -58,6 +58,10 @@ Tender (github.com/danielcopper/decky-romm-sync) already exists. The user tried 
   - **Core downloads:** a missing RetroArch core comes from `buildbot.libretro.com/nightly/linux/x86_64/latest/<core>_libretro.so.zip`, in the worker (phase `core`) or when the user switches.
   - **BIOS:** each emulator's BIOS folder is read from its own config (`retroarch.cfg` `system_directory`, DuckStation `settings.ini` `[BIOS] SearchDirectory`, PCSX2 `inis/PCSX2.ini` `[Folders] Bios`). On the Deck all three point at `~/Emulation/bios`. RomM firmware for the platform is copied there after the ROM (phase `bios`). Existing names are never overwritten, and BIOS files are never deleted.
   - **Keeping launchers current:** at plugin load, `_refresh_launchers` rewrites any launch script whose resolved command changed. It never downloads cores, so "Automatic" follows newly installed emulators. Changing an override rewrites that platform's scripts, downloading the core if needed.
+- **Updates and health (`status.py`):** a ROM counts as updated when RomM's `[name, size, md5]` list differs from `record["server_files"]`, saved at install.
+  - Records without a baseline adopt the current state, so they're never flagged spuriously.
+  - `update_rom` reinstalls into the same root. The worker may overwrite only files the record lists (`replace`), and owned files the server dropped are deleted.
+  - Ownership persists across reinstalls: a previously owned file that's unchanged stays owned.
 - **Playlist-only ROMs:** RomM indexes a loose `Game.m3u` as its own ROM, separate from the folder holding the discs (PSX Chrono Cross: 5269 is the `.m3u`, 5268 the discs). `rom_detail()["playlist_for"]` lists the `sibling_roms`, and installing one is refused, naming the real game.
 - **BIOS:** fetched from RomM's firmware endpoint into the chosen emulator's BIOS dir (RetroArch `system/`, DuckStation and PCSX2 `bios/`). Files already present with the same hash are skipped.
 - **Multi-disc:** generate an `.m3u`. **Archives:** extract only when the platform's map entry says so.
