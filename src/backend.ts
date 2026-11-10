@@ -160,8 +160,11 @@ export type InstalledRom = {
   files: InstalledFile[];
   launch_target: string;
   size: number;
-  emulator: string;
-  launcher: string;
+  /** null when it was downloaded without an emulator (rom_only). */
+  emulator: string | null;
+  launcher?: string;
+  /** Downloaded only: no emulator could run it, so it has no launch script or shortcut. */
+  rom_only?: boolean;
   appid?: number | null;
   collection?: string | null;
   installed_at: number;
@@ -177,11 +180,10 @@ export type ShortcutInfo = {
   appid: number | null;
   emulator: string;
 };
-export type FinalizeInfo = ShortcutInfo & {
-  kind: "install" | "update";
-  bios_added: string[];
-  bios_error: string | null;
-};
+type FinalizeExtra = { kind: "install" | "update"; bios_added: string[]; bios_error: string | null };
+/** A download-only install: no emulator, so no shortcut. */
+export type RomOnlyInfo = { rom_id: string; name: string; rom_only: true; platform_dir: string; reason: string };
+export type FinalizeInfo = ((ShortcutInfo & { rom_only?: false }) | RomOnlyInfo) & FinalizeExtra;
 
 /** A way to run a platform. status: ready, core_missing (RetroArch downloads it), not_installed. */
 export type EmulatorOption = {

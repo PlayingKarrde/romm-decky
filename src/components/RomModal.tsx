@@ -19,6 +19,9 @@ import { Cover } from "../common/Cover";
 
 type Props = { rom: RomSummary; closeModal?: () => void };
 
+/** Most file lines the dialog lists before summarising the rest. */
+const MAX_FILES = 4;
+
 /**
  * Confirm, then uninstall. The dialog's handlers only record the choice: Steam's
  * ConfirmModal doesn't close on an async onOK, so the work runs after it has closed.
@@ -26,12 +29,17 @@ type Props = { rom: RomSummary; closeModal?: () => void };
 export async function confirmUninstall(inst: InstalledRom, onDone?: () => void): Promise<void> {
   const adopted = inst.files.filter((f) => !f.owned).length;
   const owned = inst.files.length - adopted;
+  const from = inst.rom_only ? "from the installed list" : "from Steam";
   const choice = await new Promise<"keep" | "delete" | null>((resolve) => {
     if (!adopted) {
       showModal(
         <ConfirmModal
           strTitle={`Uninstall ${inst.title}?`}
-          strDescription={`This removes ${inst.title} from Steam and deletes its ROM files (${formatBytes(inst.size)}). Saves are kept.`}
+          strDescription={
+            inst.rom_only
+              ? `This deletes ${inst.title}'s ROM files (${formatBytes(inst.size)}).`
+              : `This removes ${inst.title} from Steam and deletes its ROM files (${formatBytes(inst.size)}). Saves are kept.`
+          }
           strOKButtonText="Uninstall"
           onOK={() => resolve("keep")}
           onCancel={() => resolve(null)}
@@ -45,7 +53,7 @@ export async function confirmUninstall(inst: InstalledRom, onDone?: () => void):
     showModal(
       <ConfirmModal
         strTitle={`Uninstall ${inst.title}?`}
-        strDescription={`This removes ${inst.title} from Steam${owned ? " and deletes the files it downloaded" : ""}. ${what} Keep them, or delete them too? Saves are kept either way.`}
+        strDescription={`This removes ${inst.title} ${from}${owned ? " and deletes the files it downloaded" : ""}. ${what} Keep them, or delete them too? Saves are kept either way.`}
         strOKButtonText="Keep files"
         strMiddleButtonText="Delete files too"
         onOK={() => resolve("keep")}
@@ -112,6 +120,13 @@ export function RomModal({ rom, closeModal }: Props) {
           Re-add to Steam
         </DialogButton>,
       );
+    // Downloaded without an emulator; once one is installed it can go into Steam.
+    if (inst.rom_only && emu?.ok)
+      actions.push(
+        <DialogButton key="add" style={wide} onClick={() => void readdToSteam(inst)}>
+          Add to Steam
+        </DialogButton>,
+      );
     if (st?.update_available)
       actions.push(
         <DialogButton key="update" style={wide} onClick={() => void startUpdate(inst)}>
@@ -128,25 +143,27 @@ export function RomModal({ rom, closeModal }: Props) {
       <DialogButton
         key="install"
         style={wide}
-        disabled={starting || !emu?.ok || rom.missing || !!detail?.playlist_for}
+        disabled={starting || emu == null || rom.missing || !!detail?.playlist_for}
         onClick={async () => {
           setStarting(true);
           await install(rom.id, rom.name);
           setStarting(false);
         }}
       >
-        Install
+        {emu && !emu.ok ? "Download only" : "Install"}
       </DialogButton>,
     ];
   }
 
   const emuLine = inst
-    ? `Installed · ${inst.emulator}`
+    ? inst.rom_only
+      ? `Downloaded to ${inst.platform_dir} · not in Steam (no emulator)`
+      : `Installed · ${inst.emulator}`
     : emu == null
       ? null
       : emu.ok
         ? `Runs with ${emu.data.name}${emu.data.status === "core_missing" ? " (the core downloads on install)" : ""}`
-        : emu.message;
+        : `${emu.message.replace(/\.?$/, ".")} You can still download the ROM, but it won't be added to Steam.`;
 
   const notice = !inst
     ? null
@@ -171,7 +188,13 @@ export function RomModal({ rom, closeModal }: Props) {
             <div style={{ fontSize: "24px", fontWeight: "bold" }}>{rom.name}</div>
             <div style={{ color: "#8b929a", fontSize: "14px" }}>{meta.join(" · ")}</div>
             {emuLine && (
-              <div style={{ fontSize: "13px", color: inst ? "#59bf40" : emu?.ok ? "#b8bcbf" : "#ffb84d" }}>
+              <div
+                style={{
+                  fontSize: "13px",
+                  color: inst ? (inst.rom_only ? "#b8bcbf" : "#59bf40") : emu?.ok ? "#b8bcbf" : "#ffb84d",
+                  wordBreak: "break-word",
+                }}
+              >
                 {emuLine}
               </div>
             )}
@@ -200,11 +223,13 @@ export function RomModal({ rom, closeModal }: Props) {
             </div>
             {files.length > 1 && (
               <div style={{ fontSize: "12px", color: "#8b929a", lineHeight: 1.5 }}>
-                {files.map((f) => (
+                {/* A few discs are worth listing; a folder game can have hundreds of files. */}
+                {(files.length > MAX_FILES ? files.slice(0, MAX_FILES - 1) : files).map((f) => (
                   <div key={f.id} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {f.name} · {formatBytes(f.size)}
                   </div>
                 ))}
+                {files.length > MAX_FILES && <div>and {files.length - (MAX_FILES - 1)} more files</div>}
               </div>
             )}
           </div>

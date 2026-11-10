@@ -22,6 +22,10 @@ from romm.installer import check_space, delete_owned
 from romm.pairing import SGDB_PHONE_TITLE, DevicePairing, sgdb_phone_page
 from romm.settings import Settings, SettingsStore
 
+# resolve() errors meaning "nothing can run this platform": the ROM can still be
+# downloaded, it just doesn't get a launch script or a Steam shortcut.
+NO_EMULATOR = frozenset({"no_emulator", "unsupported_platform"})
+
 log = decky.logger
 UPDATER = Updater("PlayingKarrde/romm-decky", "romm-decky-")
 
@@ -371,6 +375,8 @@ class Plugin:
         needs a core download (they keep their current script). Returns how many changed."""
         home, n = self._home(), 0
         for rec in self.installed.load().values():
+            if rec.get("rom_only"):
+                continue  # downloaded without an emulator: no launch script to keep current
             rkey = emulators.platform_key(rec.get("platform_slug", ""), rec.get("platform_fs_slug", ""))
             if key is not None and rkey != key:
                 continue
@@ -424,7 +430,12 @@ class Plugin:
         if rom.get("playlist_for") is not None:
             other = ", ".join(s["name"] for s in rom["playlist_for"]) or "the game it belongs to"
             raise RommError(f"This is only a disc playlist. Install {other} instead.", code="playlist_only")
-        choice = self._resolve(rom["platform_slug"], rom["platform_fs_slug"])  # fails early if none
+        try:
+            choice = self._resolve(rom["platform_slug"], rom["platform_fs_slug"])
+        except RommError as e:
+            if e.code not in NO_EMULATOR:
+                raise
+            choice = None  # download only; finalize_install leaves it out of Steam
         # An update stays where the game is; a (re)install goes to the current root.
         root = (os.path.dirname(update["platform_dir"].rstrip("/")) if update
                 else default_root(self._home(), self.settings.install_root))
@@ -442,8 +453,8 @@ class Plugin:
                 "rom_id": str(rom_id), "title": rom["name"], "root": root, "total_bytes": total,
                 "server_url": self.settings.server_url, "settings_path": self.store.path,
                 "home": self._home(),
-                "core": choice.get("core") if choice["status"] == "core_missing" else None,
-                "bios_dir": emulators.bios_dir(self._home(), choice["emulator"]),
+                "core": choice.get("core") if choice and choice["status"] == "core_missing" else None,
+                "bios_dir": emulators.bios_dir(self._home(), choice["emulator"]) if choice else None,
                 "kind": "update" if update else "install",
                 "replace": [f["rel"] for f in (update or {}).get("files") or []],
             })
@@ -476,7 +487,8 @@ class Plugin:
         """After the worker finishes: write the launch script and the install record.
 
         Returns what the frontend needs for the Steam shortcut:
-        {rom_id, name, exe, start_dir, cover, collection, appid (previous, if any)}.
+        {rom_id, name, exe, start_dir, cover, collection, appid (previous, if any)}, or
+        {rom_id, name, rom_only: True, platform_dir, reason} when no emulator can run it.
         """
         def run():
             st = jobs.read_state(os.path.join(self.jobs_root, os.path.basename(job_id)))
@@ -505,25 +517,35 @@ class Plugin:
                 "launch_target": res["launch_target"], "size": res["size"],
                 "cover_large": rom.get("cover_large"), "server_files": res.get("server_files"),
             })
-            info = self._shortcut_info(rom_id)
-            log.info("Finalized %s (%s) via %s; bios %s", rom_id, rom["name"], info["emulator"],
+            info = self._shortcut_info(rom_id, allow_rom_only=True)
+            log.info("Finalized %s (%s) via %s; bios %s", rom_id, rom["name"], info.get("emulator") or "(no emulator)",
                      res.get("bios_error") or res.get("bios"))
             return {**info, "kind": st.get("kind", "install"),
                     "bios_added": (res.get("bios") or {}).get("added", []), "bios_error": res.get("bios_error")}
         return await self._call(run)
 
-    def _shortcut_info(self, rom_id) -> dict:
-        """Write the launch script for an install record; return what the Steam shortcut needs."""
+    def _shortcut_info(self, rom_id, allow_rom_only: bool = False) -> dict:
+        """Write the launch script for an install record; return what the Steam shortcut needs.
+
+        allow_rom_only: if no emulator can run it (and it never had a launcher), record it
+        as downloaded only and return {rom_only: True, ...} instead of raising."""
         rec = self.installed.get(rom_id)
         if not rec:
             raise RommError("This ROM isn't installed", code="not_found")
-        emu = self._resolve(rec["platform_slug"], rec["platform_fs_slug"])
+        try:
+            emu = self._resolve(rec["platform_slug"], rec["platform_fs_slug"])
+        except RommError as e:
+            if not allow_rom_only or e.code not in NO_EMULATOR or rec.get("launcher"):
+                raise
+            self.installed.put(rom_id, {"emulator": None, "rom_only": True})
+            return {"rom_id": str(rom_id), "name": rec["title"], "rom_only": True,
+                    "platform_dir": rec["platform_dir"], "reason": str(e)}
         if emu.get("core") and emu["status"] == "core_missing":
             provision.download_core(self._home(), emu["core"])
         target = os.path.join(rec["platform_dir"], rec["launch_target"])
         launchers.write(self._home(), rom_id, rec["title"], emulators.argv(self._home(), emu, target))
         exe = launchers.script_path(self._home(), rom_id)
-        self.installed.put(rom_id, {"emulator": emu["name"], "launcher": exe})
+        self.installed.put(rom_id, {"emulator": emu["name"], "launcher": exe, "rom_only": False})
         coll = library.collection_name(rec["platform_slug"], rec["platform_name"])
         return {
             "rom_id": str(rom_id), "name": rec["title"], "exe": exe, "start_dir": os.path.dirname(exe),

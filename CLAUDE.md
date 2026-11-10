@@ -2,7 +2,7 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-07): v0.3.1 refreshes the emulator table** (see the emulator layer notes). Earlier releases: v0.3.0 (SteamGridDB artwork), v0.2.0 (in-plugin updates), v0.1.0.
+**Status (2026-11-10): v0.3.2 adds download-only installs** (see "Download only" under Decisions). Earlier releases: v0.3.1 (emulator table refresh), v0.3.0 (SteamGridDB artwork), v0.2.0 (in-plugin updates), v0.1.0.
 - **Self-update** (`common/selfupdate.py`, from decky-common): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
   - The panel shows "Update to X", and a toast appears once per new version.
   - Installing calls Decky's `utilities/install_plugin(url, "RomM", version, sha256, 2)`. The name must match `plugin.json`.
@@ -83,6 +83,10 @@ Tender (github.com/danielcopper/decky-romm-sync) already exists. The user tried 
   - Ownership persists across reinstalls: a previously owned file that's unchanged stays owned.
 - **Playlist-only ROMs:** RomM indexes a loose `Game.m3u` as its own ROM, separate from the folder holding the discs (PSX Chrono Cross: 5269 is the `.m3u`, 5268 the discs). `rom_detail()["playlist_for"]` lists the `sibling_roms`, and installing one is refused, naming the real game.
 - **BIOS:** fetched from RomM's firmware endpoint into the chosen emulator's BIOS dir (RetroArch `system/`, DuckStation and PCSX2 `bios/`). Files already present with the same hash are skipped.
+- **Download only (2026-11-10, the user's request):** when no emulator can run a platform (`no_emulator`/`unsupported_platform`), the ROM dialog's button becomes "Download only", with a warning. The ROM is downloaded as usual, but there's no core, BIOS, launch script or Steam shortcut. The record gets `rom_only: true` and `emulator: null`.
+  - Its health is always "ok" unless files are missing.
+  - Once an emulator is installed, the dialog offers "Add to Steam". An update also adds it to Steam if an emulator resolves by then.
+  - `_refresh_launchers` skips these records.
 - **Multi-disc:** generate an `.m3u`. **Archives:** extract only when the platform's map entry says so.
 - **Install layout (2026-11-06, the user's choice):** EmuDeck style, `<root>/<platform>/<file>`. A multi-file game gets `<root>/<platform>/<fs_name>/` plus an `.m3u`.
   - The default root is `~/Emulation/roms` when it exists, otherwise `~/Games/RomM`. It can be changed in the QAM "Install location" panel (an SD card, or any folder).

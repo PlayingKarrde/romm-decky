@@ -142,6 +142,7 @@ export type Health = "ok" | "files_missing" | "shortcut_missing";
 /** What's wrong with an install, if anything. Shortcut presence is checked live in Steam. */
 export function healthOf(inst: InstalledRom, st?: InstallStatus): Health {
   if (st?.files === "missing") return "files_missing";
+  if (inst.rom_only) return "ok"; // never had a shortcut
   if (!inst.appid || !shortcutExists(inst.appid)) return "shortcut_missing";
   return "ok";
 }
@@ -214,6 +215,11 @@ export async function finishInstall(job: JobState, manual = false): Promise<void
     const info = await finalizeInstall(job.job_id);
     if (!info.ok) throw new Error(info.error.message);
     const f = info.data;
+    if (f.rom_only) {
+      await dismissJob(job.job_id);
+      toast(`${f.name} downloaded to ${f.platform_dir}. It wasn't added to Steam: no emulator for it is installed.`);
+      return;
+    }
     const { appId, hadShortcut } = await linkShortcut(f);
     await dismissJob(job.job_id);
     toast(
@@ -242,7 +248,7 @@ export async function readdToSteam(inst: InstalledRom): Promise<void> {
     const r = await readdInfo(inst.rom_id);
     if (!r.ok) throw new Error(r.error.message);
     const { appId } = await linkShortcut(r.data);
-    toast(`${inst.title} is back in your library`);
+    toast(inst.rom_only ? `${inst.title} added to your library` : `${inst.title} is back in your library`);
     await applyRomArtwork(inst.rom_id, appId, r.data.cover);
   } catch (e) {
     toast(`Couldn't add ${inst.title} to Steam: ${(e as Error).message}`);
@@ -281,7 +287,7 @@ export async function uninstall(inst: InstalledRom, deleteExisting = false): Pro
     if (!r.ok) throw new Error(r.error.message);
     toast(
       r.data.kept
-        ? `${inst.title} removed from Steam. Its existing ROM files were kept.`
+        ? `${inst.title} removed${inst.rom_only ? "" : " from Steam"}. Its existing ROM files were kept.`
         : `${inst.title} uninstalled`,
     );
     return true;
