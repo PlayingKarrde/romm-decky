@@ -21,7 +21,7 @@ import {
   uninstallRom,
   updateRom,
 } from "./backend";
-import { addToCollection, applyArtwork, removeShortcut, shortcutExists, upsertShortcut } from "./steam";
+import { addToCollection, applyArtwork, compatToolSet, removeShortcut, shortcutExists, upsertShortcut } from "./steam";
 
 type Snapshot = { jobs: JobState[]; installed: InstalledRom[]; status: InstallStatus[] };
 
@@ -83,6 +83,7 @@ async function tick() {
   timer = null;
   try {
     await refresh();
+    if (!compatRepairDone && snapshot.installed.length) void repairCompatShortcuts(snapshot.installed);
     if (Date.now() - lastStatusAt > STATUS_EVERY_MS) void refreshStatus();
   } catch (e) {
     console.warn("[romm] poll failed", e);
@@ -176,10 +177,11 @@ export async function install(romId: number, name: string): Promise<boolean> {
   return true;
 }
 
-/** Create or update the Steam shortcut (+ collection) for an install. Returns the appid. */
+/** Create or update the Steam shortcut (+ collection) for an install. Returns the appid, and
+ *  whether the shortcut existed before (false when it was created or recreated). */
 async function linkShortcut(f: ShortcutInfo): Promise<{ appId: number; hadShortcut: boolean }> {
-  const hadShortcut = !!f.appid && shortcutExists(f.appid);
-  const appId = await upsertShortcut({ name: f.name, exe: f.exe, startDir: f.start_dir }, f.appid);
+  const { appId, created } = await upsertShortcut({ name: f.name, exe: f.exe, startDir: f.start_dir }, f.appid);
+  const hadShortcut = !created;
   let collection: string | null = null;
   if (f.collection) {
     try {
@@ -253,6 +255,37 @@ export async function readdToSteam(inst: InstalledRom): Promise<void> {
   } catch (e) {
     toast(`Couldn't add ${inst.title} to Steam: ${(e as Error).message}`);
   } finally {
+    void refresh();
+  }
+}
+
+/**
+ * Recreate shortcuts that Steam would run through Proton or another compatibility tool. Steam's
+ * November 2026 client made our old "clear the tool" call select Proton instead, so shortcuts made
+ * by v0.3.3 or earlier on that client fail with "compatibility tool failed". Runs once per load.
+ */
+let compatRepairDone = false;
+async function repairCompatShortcuts(installed: InstalledRom[]): Promise<void> {
+  if (compatRepairDone) return;
+  compatRepairDone = true;
+  let fixed = 0;
+  for (const inst of installed) {
+    if (inst.rom_only || !inst.appid || !shortcutExists(inst.appid)) continue;
+    try {
+      if (!(await compatToolSet(inst.appid))) continue;
+      const r = await readdInfo(inst.rom_id);
+      if (!r.ok) throw new Error(r.error.message);
+      const { appId, hadShortcut } = await linkShortcut(r.data);
+      if (!hadShortcut) {
+        fixed++;
+        await applyRomArtwork(inst.rom_id, appId, r.data.cover);
+      }
+    } catch (e) {
+      console.warn("[romm] compat repair failed for", inst.rom_id, e);
+    }
+  }
+  if (fixed) {
+    toast(`Fixed ${fixed} game${fixed === 1 ? "" : "s"} that Steam had set to launch through Proton`);
     void refresh();
   }
 }
