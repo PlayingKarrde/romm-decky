@@ -1,7 +1,16 @@
-import { ButtonItem, PanelSection, PanelSectionRow, SteamSpinner, showModal, staticClasses } from "@decky/ui";
+import {
+  ButtonItem,
+  DialogButton,
+  Focusable,
+  PanelSection,
+  PanelSectionRow,
+  SteamSpinner,
+  showModal,
+  staticClasses,
+} from "@decky/ui";
 import { definePlugin, routerHook, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
-import { FaGamepad } from "react-icons/fa";
+import { FaCog, FaGamepad, FaTimes } from "react-icons/fa";
 import {
   PluginUpdate,
   PublicSettings,
@@ -19,6 +28,7 @@ import { PhoneModal } from "./common/PhoneModal";
 import { LIBRARY_ROUTE, LibraryPage, openLibrary } from "./components/LibraryPage";
 import { patchContextMenu } from "./contextMenu";
 import { attentionCounts, startPolling, stopPolling, useInstallState } from "./installs";
+import { setPanelView, usePanelView } from "./view";
 
 const sgdbPhoneApi = { start: startSgdbPhone, status: getSgdbPhoneStatus, stop: stopSgdbPhone };
 
@@ -72,6 +82,10 @@ function Content() {
   const snap = useInstallState(); // before any early return: hooks must run every render
   const { installed } = snap;
   const { attention, updates } = attentionCounts(snap);
+  const view = usePanelView();
+
+  // Leaving the plugin (B / Decky's back arrow) unmounts this; start on the main page next time.
+  useEffect(() => () => setPanelView("main"), []);
 
   useEffect(() => {
     getSettings().then((r) => {
@@ -90,6 +104,33 @@ function Content() {
     );
   }
   const paired = !!settings?.has_token;
+
+  if (view === "settings") {
+    return (
+      <>
+        <ConnectionPanel settings={settings} onChange={setSettings} />
+        {paired && <InstallLocationPanel />}
+        {paired && (
+          <ArtworkPanel
+            title="RomM"
+            settings={settings}
+            onSaved={setSettings}
+            phone={(done) =>
+              showModal(
+                <PhoneModal
+                  api={sgdbPhoneApi}
+                  title="RomM"
+                  description="Sign in to SteamGridDB there and paste its API key."
+                  onDone={done}
+                />,
+              )
+            }
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       <PluginUpdateSection />
@@ -133,26 +174,32 @@ function Content() {
         </PanelSection>
       )}
       <DownloadsPanel />
-      <ConnectionPanel settings={settings} onChange={setSettings} />
-      {paired && <InstallLocationPanel />}
-      {paired && (
-        <ArtworkPanel
-          title="RomM"
-          settings={settings}
-          onSaved={setSettings}
-          phone={(done) =>
-            showModal(
-              <PhoneModal
-                api={sgdbPhoneApi}
-                title="RomM"
-                description="Sign in to SteamGridDB there and paste its API key."
-                onDone={done}
-              />,
-            )
-          }
-        />
-      )}
+      {!paired && <ConnectionPanel settings={settings} onChange={setSettings} />}
     </>
+  );
+}
+
+const iconButton = { height: "28px", width: "40px", minWidth: 0, padding: "10px 12px" };
+
+/** Title bar: "RomM" plus a cog that opens settings; in settings it becomes a close button.
+ *  (Decky draws its own back arrow on the left, which leaves the plugin.) */
+function TitleView() {
+  const view = usePanelView();
+  const inSettings = view === "settings";
+  return (
+    <Focusable
+      className={staticClasses.Title}
+      style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: 0, boxShadow: "none" }}
+    >
+      <div style={{ marginRight: "auto" }}>{inSettings ? "RomM settings" : "RomM"}</div>
+      <DialogButton style={iconButton} onClick={() => setPanelView(inSettings ? "main" : "settings")}>
+        {inSettings ? (
+          <FaTimes style={{ marginTop: "-4px", display: "block" }} />
+        ) : (
+          <FaCog style={{ marginTop: "-4px", display: "block" }} />
+        )}
+      </DialogButton>
+    </Focusable>
   );
 }
 
@@ -168,13 +215,14 @@ export default definePlugin(() => {
   }
   return {
     name: "RomM",
-    titleView: <div className={staticClasses.Title}>RomM</div>,
+    titleView: <TitleView />,
     content: <Content />,
     icon: <FaGamepad />,
     onDismount() {
       routerHook.removeRoute(LIBRARY_ROUTE);
       stopPolling();
       clearTimeout(announce);
+      setPanelView("main");
       unpatchMenu();
     },
   };

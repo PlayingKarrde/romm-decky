@@ -2,7 +2,7 @@
 
 A Decky Loader plugin that browses a self-hosted **RomM** server from Steam Gaming Mode, installs ROMs as non-Steam shortcuts that launch the right emulator, and uninstalls them. It is a sibling of `../gameyfin-decky` (the same author's Gameyfin plugin). That plugin is shipped, has been verified on a Deck, and is the template for this one.
 
-**Status (2026-11-10): v0.3.2 adds download-only installs** (see "Download only" under Decisions). Earlier releases: v0.3.1 (emulator table refresh), v0.3.0 (SteamGridDB artwork), v0.2.0 (in-plugin updates), v0.1.0.
+**Status (2026-11-14): v0.3.3 tidies the QAM panel**: settings (connection, install location, emulators, artwork) sit behind a cog in the title bar (`src/view.ts` shares the view between `titleView` and the content), and each download shows name, status, size/speed and bar on separate lines. Earlier releases: v0.3.2 (download-only installs; see "Download only" under Decisions), v0.3.1 (emulator table refresh), v0.3.0 (SteamGridDB artwork), v0.2.0 (in-plugin updates), v0.1.0.
 - **Self-update** (`common/selfupdate.py`, from decky-common): it checks GitHub's latest release (cached for 6 hours) for the `romm-decky-*.zip` asset and its `sha256:` digest.
   - The panel shows "Update to X", and a toast appears once per new version.
   - Installing calls Decky's `utilities/install_plugin(url, "RomM", version, sha256, 2)`. The name must match `plugin.json`.
