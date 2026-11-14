@@ -89,7 +89,8 @@ async function createShortcut(spec: ShortcutSpec): Promise<number> {
 /**
  * Create a shortcut (or update an existing one). Returns the appid, and whether it is a new
  * shortcut (artwork and collections then need setting again).
- * Launch options are never touched: the launch script takes the user's options as "$@".
+ * Launch options are the user's (the launch script passes them on as "$@"): never set here,
+ * except that a recreated shortcut gets the old one's.
  * Never call SpecifyCompatTool here: on current Steam, "" selects Proton (see compatToolSet).
  */
 export async function upsertShortcut(
@@ -101,6 +102,8 @@ export async function upsertShortcut(
   if (appId != null && (await compatToolSet(appId))) {
     // The only way back to "no tool" is a new shortcut. Make it first, and only drop the old one
     // if the new one is clean (Steam gives it a new appid).
+    // Carry the user's launch options over (the launch script passes them on as "$@").
+    const launchOptions: string = (await detailsOf(appId))?.strLaunchOptions ?? "";
     const fresh = await createShortcut(spec);
     if (await compatToolSet(fresh)) {
       SteamClient.Apps.RemoveShortcut(fresh);
@@ -109,6 +112,7 @@ export async function upsertShortcut(
       SteamClient.Apps.RemoveShortcut(appId);
       appId = fresh;
       created = true;
+      if (launchOptions) SteamClient.Apps.SetAppLaunchOptions(appId, launchOptions);
     }
   }
   if (appId == null) {
